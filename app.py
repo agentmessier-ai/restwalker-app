@@ -1,4 +1,4 @@
-"""cc-provider: Claude Max plan router — runs on Mac as a background service."""
+"""cc-provider: Claude Mac plan router — runs on Mac as a background service."""
 from __future__ import annotations
 
 import asyncio
@@ -9,6 +9,8 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
+from watchdog.events import FileSystemEventHandler
+from watchdog.observers import Observer
 
 import db
 import scheduler
@@ -20,7 +22,7 @@ logger = logging.getLogger(__name__)
 # ── Sync helper ───────────────────────────────────────────────────────────────
 
 def _do_sync() -> dict:
-    """Read .usage_cache.json and write to DB immediately. Returns usage dict."""
+    """Read .usage_cache.json immediately and write to DB if fresh."""
     cfg = db.get_settings()
     stale_s = float(cfg.get("CACHE_STALE_MIN", 30)) * 60
     usage = scheduler.read_usage(stale_s)
@@ -29,23 +31,56 @@ def _do_sync() -> dict:
         logger.info(f"[sync] 5h={usage['five_hour_pct']:.1f}% weekly={usage['weekly_pct']:.1f}%")
     else:
         age = usage.get("age_s", -1) if usage else -1
-        logger.debug(f"[sync] cache stale (age={age:.0f}s) — not recording")
+        logger.debug(f"[sync] cache stale (age={age:.0f}s) — skipping record")
     return usage
 
 
-# ── Background poller ─────────────────────────────────────────────────────────
+# ── File watcher ──────────────────────────────────────────────────────────────
+# React the instant the Claude Code CLI writes .usage_cache.json rather than
+# polling on a fixed interval. Falls back to a periodic sweep for safety.
 
-async def _usage_poller():
-    logger.info("[poller] started")
-    while True:
-        try:
+class _CacheHandler(FileSystemEventHandler):
+    def __init__(self, loop: asyncio.AbstractEventLoop):
+        self._loop = loop
+        self._target = str(scheduler.USAGE_CACHE)
+
+    def on_modified(self, event):
+        if not event.is_directory and event.src_path == self._target:
+            logger.info("[watcher] cache file changed — syncing")
+            self._loop.call_soon_threadsafe(
+                lambda: asyncio.ensure_future(_async_sync())
+            )
+
+
+async def _async_sync():
+    try:
+        _do_sync()
+    except Exception as e:
+        logger.warning(f"[watcher] sync error: {e}")
+
+
+async def _background_watcher():
+    """Watch .usage_cache.json via FSEvents + periodic fallback sweep."""
+    loop = asyncio.get_event_loop()
+    handler = _CacheHandler(loop)
+    observer = Observer()
+    watch_dir = str(scheduler.USAGE_CACHE.parent)
+    observer.schedule(handler, watch_dir, recursive=False)
+    observer.start()
+    logger.info(f"[watcher] watching {scheduler.USAGE_CACHE}")
+
+    cfg = db.get_settings()
+    fallback_s = float(cfg.get("POLL_INTERVAL_MIN", 5)) * 60
+    try:
+        while True:
+            # Periodic sweep — catches cases where FSEvents missed a write
+            await asyncio.sleep(fallback_s)
             cfg = db.get_settings()
-            interval_s = float(cfg.get("POLL_INTERVAL_MIN", 5)) * 60
+            fallback_s = float(cfg.get("POLL_INTERVAL_MIN", 5)) * 60
             _do_sync()
-        except Exception as e:
-            logger.warning(f"[poller] error: {e}")
-            interval_s = 300
-        await asyncio.sleep(interval_s)
+    finally:
+        observer.stop()
+        observer.join()
 
 
 # ── App lifespan ──────────────────────────────────────────────────────────────
@@ -54,7 +89,7 @@ async def _usage_poller():
 async def lifespan(app: FastAPI):
     db.migrate()
     logger.info(f"[cc-provider] started — watching {scheduler.USAGE_CACHE}")
-    task = asyncio.create_task(_usage_poller())
+    task = asyncio.create_task(_background_watcher())
     yield
     task.cancel()
     try:
