@@ -179,51 +179,25 @@ app.delete('/providers/:id', async (req, reply) => {
 // ── Projects ───────────────────────────────────────────────────────────────────
 
 app.get('/projects', async () => {
-  const projectsDir = join(homedir(), '.claude', 'projects')
-  if (!existsSync(projectsDir)) return { projects: [] }
+  const historyFile = join(homedir(), '.claude', 'history.jsonl')
+  if (!existsSync(historyFile)) return { projects: [] }
 
-  const projects: { cwd: string; last_active: string }[] = []
-
-  for (const encoded of readdirSync(projectsDir)) {
-    const dir = join(projectsDir, encoded)
-    if (!statSync(dir).isDirectory()) continue
-
-    // Find most recent JSONL
-    let jsonls: string[]
-    try {
-      jsonls = readdirSync(dir).filter(f => f.endsWith('.jsonl'))
-    } catch { continue }
-    if (!jsonls.length) continue
-
-    const latest = jsonls
-      .map(f => ({ f, mtime: statSync(join(dir, f)).mtimeMs }))
-      .sort((a, b) => b.mtime - a.mtime)[0]
-
-    // Extract cwd from first 'user' entry
-    let cwd: string | null = null
-    let lastActive = new Date(latest.mtime).toISOString()
-    try {
-      const lines = readFileSync(join(dir, latest.f), 'utf8').split('\n').filter(Boolean)
-      for (const line of lines) {
-        const d = JSON.parse(line)
-        if (d.type === 'user' && d.cwd) { cwd = d.cwd; break }
-      }
-    } catch { continue }
-
-    if (cwd && existsSync(cwd)) projects.push({ cwd, last_active: lastActive })
-  }
-
-  // Dedupe by cwd, keep most recent
-  const seen = new Map<string, string>()
-  for (const p of projects) {
-    const existing = seen.get(p.cwd)
-    if (!existing || p.last_active > existing) seen.set(p.cwd, p.last_active)
-  }
+  const seen = new Map<string, number>()  // cwd → max timestamp
+  try {
+    const lines = readFileSync(historyFile, 'utf8').split('\n').filter(Boolean)
+    for (const line of lines) {
+      const d = JSON.parse(line) as { project?: string; timestamp?: number }
+      const p = d.project?.trim()
+      if (!p || !existsSync(p)) continue
+      const ts = d.timestamp ?? 0
+      if (ts > (seen.get(p) ?? 0)) seen.set(p, ts)
+    }
+  } catch { return { projects: [] } }
 
   return {
     projects: [...seen.entries()]
-      .sort((a, b) => b[1].localeCompare(a[1]))
-      .map(([cwd, last_active]) => ({ cwd, last_active }))
+      .sort((a, b) => b[1] - a[1])
+      .map(([cwd, ts]) => ({ cwd, last_active: new Date(ts).toISOString() }))
   }
 })
 
