@@ -150,3 +150,19 @@ export function enqueueTask(task: db.Task): void {
 let _queue: Queue<QueuePayload, void> | null = null
 export function setQueue(q: Queue<QueuePayload, void>) { _queue = q }
 export function getQueue() { return _queue }
+
+let _forceRunning = false
+
+export async function forceRunNext(log: (msg: string) => void): Promise<{ ok: boolean; error?: string }> {
+  if (_forceRunning) return { ok: false, error: 'already running a forced task' }
+  const task = db.getTasks(50).find(t => t.status === 'pending')
+  if (!task) return { ok: false, error: 'no pending tasks' }
+  _forceRunning = true
+  log(`[queue] force-running task #${task.id}`)
+  try {
+    await processTask({ id: String(task.id), taskId: task.id, description: task.description, cwd: task.cwd })
+  } finally {
+    _forceRunning = false
+  }
+  return { ok: true }
+}

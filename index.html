@@ -213,13 +213,16 @@
   </div>
 
   <div class="section" style="margin-bottom:16px">
-    <h2 style="display:flex;justify-content:space-between">
+    <h2 style="display:flex;justify-content:space-between;align-items:center">
       Task queue
-      <span style="font-size:10px;font-weight:400;letter-spacing:0">
-        <span id="q-stat-pending" style="color:#f59e0b">0 pending</span> ·
-        <span id="q-stat-running" style="color:#3b82f6">0 running</span> ·
-        <span id="q-stat-done" style="color:#22c55e">0 done</span> ·
-        <span id="q-stat-failed" style="color:#ef4444">0 failed</span>
+      <span style="display:flex;align-items:center;gap:12px">
+        <span style="font-size:10px;font-weight:400;letter-spacing:0">
+          <span id="q-stat-pending" style="color:#f59e0b">0 pending</span> ·
+          <span id="q-stat-running" style="color:#3b82f6">0 running</span> ·
+          <span id="q-stat-done" style="color:#22c55e">0 done</span> ·
+          <span id="q-stat-failed" style="color:#ef4444">0 failed</span>
+        </span>
+        <button id="q-force-btn" onclick="queueForceRun()" style="background:#f59e0b;color:#0f1117;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:11px;font-weight:600">▶ Force run</button>
       </span>
     </h2>
     <div id="q-task-list"><div style="color:var(--muted);text-align:center;padding:20px;font-style:italic">No tasks yet</div></div>
@@ -778,6 +781,24 @@ async function queueAddTask() {
 async function queueDeleteTask(id) {
   await fetch(`/queue/${id}`, { method: 'DELETE' })
   refreshQueue()
+}
+
+async function queueForceRun() {
+  const btn = document.getElementById('q-force-btn')
+  btn.textContent = '⏳ running…'
+  btn.disabled = true
+  const r = await fetch('/queue/force-run', { method: 'POST' }).then(r => r.json()).catch(() => ({ ok: false, error: 'request failed' }))
+  if (!r.ok) { btn.textContent = '▶ Force run'; btn.disabled = false; alert(r.error); return }
+  // poll until the running task finishes
+  const poll = setInterval(async () => {
+    const stats = await fetch('/queue/stats').then(r => r.json()).catch(() => ({}))
+    if (!stats.running) {
+      clearInterval(poll)
+      btn.textContent = '▶ Force run'
+      btn.disabled = false
+      refreshQueue()
+    }
+  }, 2000)
 }
 
 init();

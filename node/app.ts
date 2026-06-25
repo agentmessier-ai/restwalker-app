@@ -8,7 +8,7 @@ import { createWriteStream } from 'fs'
 
 import * as db from './db.js'
 import * as scheduler from './scheduler.js'
-import { startQueue, setQueue, enqueueTask } from './runner.js'
+import { startQueue, setQueue, enqueueTask, forceRunNext } from './runner.js'
 import type { Settings } from './db.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -173,6 +173,10 @@ app.delete('/queue/:id', async (req, reply) => {
   if (task.status !== 'pending') return reply.code(409).send({ error: 'can only cancel pending tasks' })
   db.cancelTask(id)
   return { ok: true }
+})
+
+app.post('/queue/force-run', async () => {
+  return forceRunNext(msg => app.log.info(msg))
 })
 
 app.get('/queue/skills', async (req) => {
