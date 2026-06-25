@@ -112,6 +112,7 @@
     color: var(--text); font-size: 13px; font-family: var(--mono);
   }
   .setting-input:focus { outline: none; border-color: var(--blue); }
+  select.setting-input { text-align: left; cursor: pointer; }
   .setting-unit { font-size: 12px; color: var(--muted); white-space: nowrap; }
 
   .modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border); }
@@ -219,21 +220,19 @@
       <div class="setting-row">
         <div>
           <div class="setting-label">Coding window start</div>
-          <div class="setting-hint">Jobs are paused after this hour</div>
+          <div class="setting-hint">Jobs pause after this time</div>
         </div>
         <div class="setting-input-wrap">
-          <input class="setting-input" type="number" min="0" max="23" id="s-CODING_START_H">
-          <span class="setting-unit" id="unit-start-h">h</span>
+          <select class="setting-input" id="s-CODING_START_H" style="width:9rem"></select>
         </div>
       </div>
       <div class="setting-row">
         <div>
           <div class="setting-label">Coding window end</div>
-          <div class="setting-hint">Jobs resume after this hour</div>
+          <div class="setting-hint">Jobs resume after this time</div>
         </div>
         <div class="setting-input-wrap">
-          <input class="setting-input" type="number" min="0" max="23" id="s-CODING_END_H">
-          <span class="setting-unit" id="unit-end-h">h</span>
+          <select class="setting-input" id="s-CODING_END_H" style="width:9rem"></select>
         </div>
       </div>
     </div>
@@ -478,8 +477,6 @@ function renderStatus(s) {
     tz = s.thresholds.timezone;
     const abbr = tzAbbr(tz);
     document.getElementById('sched-group-title').textContent = `Schedule (${abbr})`;
-    document.getElementById('unit-start-h').textContent = `h (${abbr})`;
-    document.getElementById('unit-end-h').textContent   = `h (${abbr})`;
   }
 }
 
@@ -521,9 +518,29 @@ function renderPredictions(status, history) {
 
 // ── Settings modal ────────────────────────────────────────────────────────────
 
+function fmtHour12(h) {
+  if (h === 0)  return '12:00 AM';
+  if (h === 12) return '12:00 PM';
+  return h < 12 ? `${h}:00 AM` : `${h-12}:00 PM`;
+}
+
+function buildHourSelects() {
+  ['s-CODING_START_H','s-CODING_END_H'].forEach(id => {
+    const sel = document.getElementById(id);
+    if (!sel || sel.options.length) return;
+    for (let h = 0; h < 24; h++) {
+      const opt = document.createElement('option');
+      opt.value = h;
+      opt.textContent = fmtHour12(h);
+      sel.appendChild(opt);
+    }
+  });
+}
+
 const SETTING_KEYS = ['CODING_START_H','CODING_END_H','TIMEZONE','FIVE_HOUR_PAUSE_PCT','WEEKLY_RESERVE_PCT','WEEKLY_HARD_STOP_PCT','POLL_INTERVAL_MIN','CACHE_STALE_MIN'];
 
 async function openSettings() {
+  buildHourSelects();
   const res = await fetch('/settings');
   const cfg = await res.json();
   for (const k of SETTING_KEYS) {
