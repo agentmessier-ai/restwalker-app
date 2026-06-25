@@ -366,6 +366,16 @@ export function cancelTask(id: number): void {
     .run()
 }
 
+export function deleteTask(id: number): boolean {
+  const result = db.delete(schema.tasks)
+    .where(and(
+      eq(schema.tasks.id, id),
+      inArray(schema.tasks.status, ['pending', 'scheduled', 'done', 'failed', 'cancelled']),
+    ))
+    .run()
+  return result.changes > 0
+}
+
 export function queueStats(): { scheduled: number; pending: number; running: number; done: number; failed: number; total: number } {
   // Conditional aggregation kept as raw SQL for readability
   const row = client.prepare(`

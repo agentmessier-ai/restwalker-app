@@ -606,7 +606,7 @@ app.post('/queue', {
 app.delete('/queue/:id', {
   schema: {
     tags: ['queue'],
-    summary: 'Cancel a pending or scheduled task',
+    summary: 'Delete a task (any status except running)',
     params: { type: 'object', required: ['id'], properties: { id: { type: 'integer' } } },
     response: { 200: S.ok, 404: S.error, 409: S.error },
   },
@@ -614,8 +614,9 @@ app.delete('/queue/:id', {
   const id   = parseInt((req.params as { id: string }).id)
   const task = db.getTask(id)
   if (!task) return reply.code(404).send({ error: 'not found' })
-  if (task.status !== 'pending' && task.status !== 'scheduled') return reply.code(409).send({ error: 'can only cancel pending or scheduled tasks' })
-  db.cancelTask(id)
+  if (task.status === 'running') return reply.code(409).send({ error: 'cannot delete a running task' })
+  const deleted = db.deleteTask(id)
+  if (!deleted) return reply.code(404).send({ error: 'not found' })
   return { ok: true }
 })
 
