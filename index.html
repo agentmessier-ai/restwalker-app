@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>cc-provider</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" integrity="sha384-JUh163oCRItcbPme8pYnROHQMC6fNKTBWtRG3I3I0erJkzNgL7uxKlNwcrcFKeqF" crossorigin="anonymous"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --green:  #22c55e; --amber: #f59e0b; --red: #ef4444; --blue: #3b82f6;
+    --bg: #0f172a; --card: #1e293b; --border: #334155;
+    --text: #e2e8f0; --muted: #64748b; --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  }
+  body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; min-height: 100vh; }
+
+  /* ── Header ── */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 24px; border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; }
+  header span { font-size: 13px; color: var(--muted); }
+  .status-pill {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 600;
+    background: var(--card); border: 1px solid var(--border);
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .dot.green  { background: var(--green);  box-shadow: 0 0 6px var(--green); }
+  .dot.amber  { background: var(--amber);  box-shadow: 0 0 6px var(--amber); }
+  .dot.red    { background: var(--red);    box-shadow: 0 0 6px var(--red); }
+
+  /* ── Layout ── */
+  main { padding: 20px 24px; max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+
+  /* ── Cards row ── */
+  .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .card .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); margin-bottom: 8px; }
+  .card .value { font-size: 28px; font-weight: 700; font-family: var(--mono); line-height: 1; }
+  .card .sub   { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+  /* ── Usage bar ── */
+  .bar-wrap { margin-top: 10px; position: relative; height: 6px; background: var(--border); border-radius: 3px; overflow: visible; }
+  .bar-fill { height: 100%; border-radius: 3px; transition: width .4s; }
+  .bar-fill.green  { background: var(--green); }
+  .bar-fill.amber  { background: var(--amber); }
+  .bar-fill.red    { background: var(--red); }
+  .bar-marker {
+    position: absolute; top: -4px; width: 2px; height: 14px;
+    background: var(--muted); border-radius: 1px; opacity: 0.7;
+  }
+
+  /* ── Section ── */
+  .section { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 20px; }
+  .section h2 { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 16px; }
+
+  /* ── Chart ── */
+  .chart-wrap { position: relative; height: 220px; }
+
+  /* ── Predictions ── */
+  .predictions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .pred-item {
+    display: flex; align-items: flex-start; gap: 10px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px;
+  }
+  .pred-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+  .pred-title { font-size: 12px; color: var(--muted); margin-bottom: 2px; }
+  .pred-value { font-size: 14px; font-weight: 600; }
+  .pred-value.green { color: var(--green); }
+  .pred-value.amber { color: var(--amber); }
+  .pred-value.red   { color: var(--red); }
+
+  /* ── Jobs table ── */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 8px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); border-bottom: 1px solid var(--border); }
+  td { padding: 9px 12px; border-bottom: 1px solid var(--border); font-family: var(--mono); }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .tag.max  { background: rgba(59,130,246,0.15); color: #93c5fd; }
+  .empty { color: var(--muted); font-size: 13px; padding: 20px 12px; }
+
+  /* ── Footer ── */
+  footer { text-align: center; font-size: 12px; color: var(--muted); padding: 16px; }
+
+  @media (max-width: 700px) {
+    .cards { grid-template-columns: repeat(2, 1fr); }
+    .predictions { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>cc-provider</h1>
+    <span>Claude Max Plan Router</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:12px;">
+    <span id="refresh-ts" style="font-size:12px;color:var(--muted)"></span>
+    <div class="status-pill">
+      <div class="dot" id="status-dot"></div>
+      <span id="status-label">—</span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <!-- Cards -->
+  <div class="cards">
+    <div class="card">
+      <div class="label">Window</div>
+      <div class="value" id="card-window">—</div>
+      <div class="sub" id="card-window-sub"></div>
+    </div>
+    <div class="card">
+      <div class="label">5h Usage</div>
+      <div class="value" id="card-5h">—</div>
+      <div class="bar-wrap">
+        <div class="bar-fill" id="bar-5h" style="width:0%"></div>
+        <div class="bar-marker" id="marker-5h" style="left:75%"></div>
+      </div>
+      <div class="sub" id="card-5h-sub">pause at 75%</div>
+    </div>
+    <div class="card">
+      <div class="label">Weekly Usage</div>
+      <div class="value" id="card-weekly">—</div>
+      <div class="bar-wrap">
+        <div class="bar-fill" id="bar-weekly" style="width:0%"></div>
+        <div class="bar-marker" id="marker-weekly-pause" style="left:65%"></div>
+        <div class="bar-marker" id="marker-weekly-stop" style="left:90%"></div>
+      </div>
+      <div class="sub" id="card-weekly-sub">pause at 65% · stop at 90%</div>
+    </div>
+    <div class="card">
+      <div class="label">Next Milestone</div>
+      <div class="value" id="card-next" style="font-size:18px;padding-top:4px">—</div>
+      <div class="sub" id="card-next-sub"></div>
+    </div>
+  </div>
+
+  <!-- Chart -->
+  <div class="section">
+    <h2>Usage Trend (48h)</h2>
+    <div class="chart-wrap">
+      <canvas id="chart"></canvas>
+    </div>
+    <div style="display:flex;gap:20px;margin-top:12px;font-size:12px;color:var(--muted)">
+      <span><span style="color:#3b82f6">●</span> 5h usage</span>
+      <span><span style="color:#22c55e">●</span> weekly usage</span>
+      <span><span style="color:rgba(100,116,139,0.5)">█</span> coding window</span>
+    </div>
+  </div>
+
+  <!-- Predictions -->
+  <div class="section">
+    <h2>Predictions</h2>
+    <div class="predictions" id="predictions"></div>
+  </div>
+
+  <!-- Jobs -->
+  <div class="section">
+    <h2>Recent Jobs</h2>
+    <table>
+      <thead><tr>
+        <th>Project</th><th>Provider</th><th>Started</th><th>Duration</th><th>Notes</th>
+      </tr></thead>
+      <tbody id="jobs-body"><tr><td colspan="5" class="empty">No jobs yet.</td></tr></tbody>
+    </table>
+  </div>
+
+</main>
+<footer id="footer">refreshing every 60s</footer>
+
+<script>
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+const PST_OFFSET_H = -8; // PST standard; daylight handled by toLocaleString
+const CODING_START = 16; // 4pm PST
+const CODING_END   = 2;  // 2am PST
+
+function fmtPct(v) { return v == null ? '—' : Math.round(v) + '%'; }
+function fmtDur(s) {
+  if (s == null) return '—';
+  if (s < 60) return Math.round(s) + 's';
+  return Math.floor(s/60) + 'm ' + Math.round(s%60) + 's';
+}
+function fmtTs(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('en-US', {
+    month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', timeZone:'America/Los_Angeles'
+  }) + ' PST';
+}
+function fmtHours(h) {
+  if (h == null || !isFinite(h) || h < 0) return null;
+  if (h < 1) return Math.round(h * 60) + 'm';
+  if (h < 24) return h.toFixed(1) + 'h';
+  return (h / 24).toFixed(1) + 'd';
+}
+
+function isCodingHour(date) {
+  // Returns true if this UTC date is in the PST coding window (4pm–2am PST)
+  const pstH = ((date.getUTCHours() - 8 + 24) % 24); // approximate PST
+  return pstH >= CODING_START || pstH < CODING_END;
+}
+
+function barColor(pct, warnAt, stopAt) {
+  if (pct >= stopAt) return 'red';
+  if (pct >= warnAt) return 'amber';
+  return 'green';
+}
+
+// Linear regression slope over [{x: ms, y: pct}]
+function slope(points) {
+  if (points.length < 2) return null;
+  const n = points.length;
+  let sx = 0, sy = 0, sxy = 0, sxx = 0;
+  for (const p of points) { sx += p.x; sy += p.y; sxy += p.x*p.y; sxx += p.x*p.x; }
+  const denom = n*sxx - sx*sx;
+  if (denom === 0) return null;
+  return (n*sxy - sx*sy) / denom; // pct per ms
+}
+
+// Hours until value reaches target, given current value and slope (pct/ms)
+function hoursUntil(current, target, slopePctPerMs) {
+  if (slopePctPerMs == null || slopePctPerMs <= 0) return null;
+  const remaining = target - current;
+  if (remaining <= 0) return 0;
+  return remaining / slopePctPerMs / 3600000;
+}
+
+// ── Chart ────────────────────────────────────────────────────────────────────
+
+let chart = null;
+
+function buildCodingBands(startMs, endMs) {
+  // Returns array of {x, y} pairs representing coding-window fill at 100
+  // We step through hour by hour and set y=100 during coding windows, null otherwise
+  const pts = [];
+  const step = 15 * 60 * 1000; // 15-min granularity
+  for (let t = startMs; t <= endMs; t += step) {
+    pts.push({ x: t, y: isCodingHour(new Date(t)) ? 100 : null });
+  }
+  return pts;
+}
+
+function initChart(labels, fiveH, weekly, startMs, endMs) {
+  const ctx = document.getElementById('chart').getContext('2d');
+  if (chart) chart.destroy();
+
+  const coding = buildCodingBands(startMs, endMs);
+
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      datasets: [
+        // Coding window fill (behind everything)
+        {
+          label: 'Coding window',
+          data: coding,
+          borderColor: 'transparent',
+          backgroundColor: 'rgba(100,116,139,0.12)',
+          fill: true,
+          pointRadius: 0,
+          tension: 0,
+          spanGaps: false,
+          order: 10,
+        },
+        // 5h pause threshold
+        {
+          label: '5h pause (75%)',
+          data: [{x: startMs, y: 75}, {x: endMs, y: 75}],
+          borderColor: 'rgba(59,130,246,0.35)',
+          borderDash: [4, 4],
+          borderWidth: 1,
+          pointRadius: 0,
+          fill: false,
+          order: 5,
+        },
+        // Weekly pause threshold
+        {
+          label: 'Weekly pause (65%)',
+          data: [{x: startMs, y: 65}, {x: endMs, y: 65}],
+          borderColor: 'rgba(245,158,11,0.35)',
+          borderDash: [4, 4],
+          borderWidth: 1,
+          pointRadius: 0,
+          fill: false,
+          order: 5,
+        },
+        // Weekly hard stop
+        {
+          label: 'Hard stop (90%)',
+          data: [{x: startMs, y: 90}, {x: endMs, y: 90}],
+          borderColor: 'rgba(239,68,68,0.35)',
+          borderDash: [4, 4],
+          borderWidth: 1,
+          pointRadius: 0,
+          fill: false,
+          order: 5,
+        },
+        // 5h usage
+        {
+          label: '5h usage',
+          data: fiveH,
+          borderColor: '#3b82f6',
+          backgroundColor: 'rgba(59,130,246,0.08)',
+          fill: true,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          tension: 0.3,
+          borderWidth: 2,
+          order: 1,
+        },
+        // Weekly usage
+        {
+          label: 'Weekly usage',
+          data: weekly,
+          borderColor: '#22c55e',
+          backgroundColor: 'rgba(34,197,94,0.06)',
+          fill: true,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          tension: 0.3,
+          borderWidth: 2,
+          order: 1,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#1e293b',
+          borderColor: '#334155',
+          borderWidth: 1,
+          titleColor: '#94a3b8',
+          bodyColor: '#e2e8f0',
+          callbacks: {
+            title: items => {
+              const d = new Date(items[0].parsed.x);
+              return d.toLocaleString('en-US', {
+                month:'short', day:'numeric',
+                hour:'2-digit', minute:'2-digit',
+                timeZone:'America/Los_Angeles'
+              }) + ' PST';
+            },
+            label: item => {
+              if (['Coding window','5h pause (75%)','Weekly pause (65%)','Hard stop (90%)'].includes(item.dataset.label)) return null;
+              return ` ${item.dataset.label}: ${item.parsed.y?.toFixed(1)}%`;
+            },
+          }
+        }
+      },
+      scales: {
+        x: {
+          type: 'linear',
+          min: startMs,
+          max: endMs,
+          grid: { color: 'rgba(255,255,255,0.04)' },
+          ticks: {
+            color: '#64748b',
+            maxTicksLimit: 8,
+            callback: v => new Date(v).toLocaleString('en-US', {
+              month:'short', day:'numeric', hour:'2-digit', timeZone:'America/Los_Angeles'
+            }),
+          }
+        },
+        y: {
+          min: 0, max: 100,
+          grid: { color: 'rgba(255,255,255,0.04)' },
+          ticks: { color: '#64748b', callback: v => v + '%' },
+        }
+      }
+    }
+  });
+}
+
+// ── Predictions ───────────────────────────────────────────────────────────────
+
+function renderPredictions(status, history) {
+  const el = document.getElementById('predictions');
+  const items = [];
+
+  const fiveH  = status.usage?.five_hour_pct;
+  const weekly = status.usage?.weekly_pct;
+  const resets = status.usage?.weekly_resets_at;
+  const t5     = status.thresholds?.five_hour_pause_pct  ?? 75;
+  const tw     = status.thresholds?.weekly_reserve_pct   ?? 35;
+  const ts     = status.thresholds?.weekly_hard_stop_pct ?? 90;
+
+  // Compute slopes from last 6h of history
+  const cutoff = Date.now() - 6 * 3600000;
+  const recent = history.filter(h => new Date(h.bucket).getTime() > cutoff);
+  const pts5h  = recent.map(h => ({ x: new Date(h.bucket).getTime(), y: h.five_hour_pct }));
+  const ptsWk  = recent.map(h => ({ x: new Date(h.bucket).getTime(), y: h.weekly_pct }));
+  const slope5h = slope(pts5h);   // pct/ms
+  const slopeWk = slope(ptsWk);
+
+  // 5h threshold
+  const h5 = hoursUntil(fiveH, t5, slope5h);
+  items.push({
+    icon: '⏱',
+    title: '5h usage hits pause threshold',
+    value: h5 === 0 ? 'Already paused' : h5 ? 'in ~' + fmtHours(h5) : fiveH != null ? `${Math.round(fiveH)}% — healthy` : '—',
+    cls: h5 === 0 ? 'red' : h5 && h5 < 2 ? 'amber' : 'green',
+  });
+
+  // Weekly ceiling (100 - reserve)
+  const ceiling = 100 - tw;
+  const hw = hoursUntil(weekly, ceiling, slopeWk);
+  items.push({
+    icon: '📅',
+    title: `Weekly hits pause ceiling (${ceiling}%)`,
+    value: hw === 0 ? 'Already paused' : hw ? 'in ~' + fmtHours(hw) : weekly != null ? `${Math.round(weekly)}% — healthy` : '—',
+    cls: hw === 0 ? 'red' : hw && hw < 12 ? 'amber' : 'green',
+  });
+
+  // Weekly hard stop
+  const hws = hoursUntil(weekly, ts, slopeWk);
+  items.push({
+    icon: '🛑',
+    title: `Weekly hard stop (${ts}%)`,
+    value: hws === 0 ? 'Already stopped' : hws ? 'in ~' + fmtHours(hws) : weekly != null ? `${Math.round(weekly)}% — safe` : '—',
+    cls: hws === 0 ? 'red' : hws && hws < 24 ? 'amber' : 'green',
+  });
+
+  // Weekly reset date
+  const resetStr = resets
+    ? new Date(resets).toLocaleString('en-US', {
+        month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', timeZone:'America/Los_Angeles'
+      }) + ' PST'
+    : '—';
+  items.push({
+    icon: '🔄',
+    title: 'Weekly budget resets',
+    value: resetStr,
+    cls: 'green',
+  });
+
+  el.innerHTML = items.map(i => `
+    <div class="pred-item">
+      <div class="pred-icon">${i.icon}</div>
+      <div>
+        <div class="pred-title">${i.title}</div>
+        <div class="pred-value ${i.cls}">${i.value}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ── Jobs ──────────────────────────────────────────────────────────────────────
+
+function renderJobs(jobs) {
+  const tbody = document.getElementById('jobs-body');
+  if (!jobs.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty">No jobs yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = jobs.map(j => `
+    <tr>
+      <td>${j.project}</td>
+      <td><span class="tag ${j.provider}">${j.provider}</span></td>
+      <td style="color:var(--muted)">${fmtTs(j.started_at)}</td>
+      <td>${fmtDur(j.duration_s)}</td>
+      <td style="color:var(--muted);font-size:12px">${j.notes || ''}</td>
+    </tr>
+  `).join('');
+}
+
+// ── Status cards ──────────────────────────────────────────────────────────────
+
+function renderStatus(status) {
+  const dot   = document.getElementById('status-dot');
+  const label = document.getElementById('status-label');
+
+  if (status.window === 'coding') {
+    dot.className = 'dot amber'; label.textContent = 'Coding window';
+  } else if (!status.ok) {
+    dot.className = 'dot red';   label.textContent = 'Paused';
+  } else {
+    dot.className = 'dot green'; label.textContent = 'Idle · running on max';
+  }
+
+  // Window card
+  const windowEl = document.getElementById('card-window');
+  const windowSub = document.getElementById('card-window-sub');
+  if (status.window === 'coding') {
+    windowEl.textContent = 'CODING';
+    windowEl.style.color = 'var(--amber)';
+    const m = Math.round(status.next_idle_in_s / 60);
+    windowSub.textContent = `idle in ${m >= 60 ? Math.floor(m/60)+'h '+m%60+'m' : m+'m'}`;
+  } else {
+    windowEl.textContent = 'IDLE';
+    windowEl.style.color = 'var(--green)';
+    windowSub.textContent = status.reason || '';
+  }
+
+  // 5h card
+  const fiveH = status.usage?.five_hour_pct;
+  const t5    = status.thresholds?.five_hour_pause_pct ?? 75;
+  document.getElementById('card-5h').textContent = fmtPct(fiveH);
+  const bar5  = document.getElementById('bar-5h');
+  bar5.style.width = Math.min(fiveH ?? 0, 100) + '%';
+  bar5.className = 'bar-fill ' + barColor(fiveH ?? 0, t5, 100);
+  document.getElementById('marker-5h').style.left = t5 + '%';
+
+  // Weekly card
+  const weekly = status.usage?.weekly_pct;
+  const tw     = status.thresholds?.weekly_reserve_pct   ?? 35;
+  const ts     = status.thresholds?.weekly_hard_stop_pct ?? 90;
+  const ceiling = 100 - tw;
+  document.getElementById('card-weekly').textContent = fmtPct(weekly);
+  const barW  = document.getElementById('bar-weekly');
+  barW.style.width = Math.min(weekly ?? 0, 100) + '%';
+  barW.className = 'bar-fill ' + barColor(weekly ?? 0, ceiling, ts);
+  document.getElementById('marker-weekly-pause').style.left = ceiling + '%';
+  document.getElementById('marker-weekly-stop').style.left  = ts + '%';
+
+  // Next milestone card
+  const nextEl  = document.getElementById('card-next');
+  const nextSub = document.getElementById('card-next-sub');
+  if (status.window === 'coding') {
+    const secs = status.next_idle_in_s;
+    const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60);
+    nextEl.textContent = h > 0 ? `${h}h ${m}m` : `${m}m`;
+    nextSub.textContent = 'until idle window';
+  } else if (status.usage?.weekly_resets_at) {
+    const d = new Date(status.usage.weekly_resets_at);
+    nextEl.textContent = d.toLocaleDateString('en-US', {month:'short', day:'numeric'});
+    nextSub.textContent = d.toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit', timeZone:'America/Los_Angeles'}) + ' PST · weekly reset';
+  } else {
+    nextEl.textContent = '—'; nextSub.textContent = '';
+  }
+}
+
+// ── Main fetch loop ───────────────────────────────────────────────────────────
+
+async function refresh() {
+  try {
+    const [statusRes, historyRes, jobsRes] = await Promise.all([
+      fetch('/status'),
+      fetch('/history?hours=48'),
+      fetch('/jobs?limit=20'),
+    ]);
+    const status  = await statusRes.json();
+    const history = (await historyRes.json()).history ?? [];
+    const jobs    = (await jobsRes.json()).jobs ?? [];
+
+    renderStatus(status);
+    renderPredictions(status, history);
+    renderJobs(jobs);
+
+    // Chart
+    const now = Date.now();
+    const start = now - 48 * 3600000;
+    const fiveH  = history.map(h => ({ x: new Date(h.bucket).getTime(), y: h.five_hour_pct }));
+    const weekly = history.map(h => ({ x: new Date(h.bucket).getTime(), y: h.weekly_pct }));
+    // Append current reading
+    if (status.usage?.five_hour_pct != null) fiveH.push({ x: now, y: status.usage.five_hour_pct });
+    if (status.usage?.weekly_pct    != null) weekly.push({ x: now, y: status.usage.weekly_pct });
+    initChart(null, fiveH, weekly, start, now);
+
+    document.getElementById('refresh-ts').textContent =
+      'updated ' + new Date().toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+  } catch (e) {
+    console.error('refresh failed', e);
+  }
+}
+
+refresh();
+setInterval(refresh, 60000);
+</script>
+</body>
+</html>

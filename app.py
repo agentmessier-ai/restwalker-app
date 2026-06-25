@@ -5,8 +5,10 @@ import logging
 import os
 from datetime import datetime, timezone
 
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
 import db
@@ -122,6 +124,20 @@ def job_finish(job_id: int, body: JobFinish):
 def jobs(limit: int = 20):
     """Recent job log."""
     return {"jobs": db.recent_job_log(limit)}
+
+
+# ── History ──────────────────────────────────────────────────────────────────
+
+@app.get("/history")
+def history(hours: int = 48):
+    return {"history": db.usage_history(hours)}
+
+
+# ── UI ────────────────────────────────────────────────────────────────────────
+
+@app.get("/")
+def ui():
+    return FileResponse(Path(__file__).parent / "index.html")
 
 
 # ── Health ────────────────────────────────────────────────────────────────────

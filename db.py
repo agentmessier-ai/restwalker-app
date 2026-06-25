@@ -82,6 +82,26 @@ def latest_snapshot() -> dict | None:
     return dict(row) if row else None
 
 
+def usage_history(hours: int = 48) -> list[dict]:
+    """Return bucketed (15-min) usage snapshots for the last N hours."""
+    con = _conn()
+    rows = con.execute("""
+        SELECT
+            strftime('%Y-%m-%dT%H:', recorded_at) ||
+                printf('%02d', (CAST(strftime('%M', recorded_at) AS INTEGER) / 15) * 15) ||
+                ':00Z' AS bucket,
+            ROUND(AVG(five_hour_pct), 1)  AS five_hour_pct,
+            ROUND(AVG(weekly_pct), 1)     AS weekly_pct,
+            COUNT(*)                       AS samples
+        FROM usage_snapshots
+        WHERE recorded_at >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ? || ' hours')
+        GROUP BY bucket
+        ORDER BY bucket ASC
+    """, (f"-{hours}",)).fetchall()
+    con.close()
+    return [dict(r) for r in rows]
+
+
 def log_job_start(project: str, provider: str) -> int:
     with tx() as con:
         cur = con.execute(
