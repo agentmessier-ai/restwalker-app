@@ -3,11 +3,13 @@ import { existsSync, mkdirSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 
-const DB_PATH = process.env.RESTWALKER_DB
-  ?? join(homedir(), '.restwalker', 'restwalker.db')
-
 const DATA_DIR = join(homedir(), '.restwalker')
 if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true })
+
+const DB_PATH = process.env.RESTWALKER_DB ?? join(DATA_DIR, 'restwalker.db')
+
+export const SKILLS_DIR = process.env.SKILLS_DIR ?? join(homedir(), '.claude', 'skills')
+export const CLAUDE_PROJECTS_DIR = join(homedir(), '.claude', 'projects')
 
 const db: DB = new Database(DB_PATH)
 db.pragma('journal_mode = WAL')
@@ -50,6 +52,37 @@ export const SETTING_DEFAULTS: Settings = {
   CACHE_STALE_MIN:      process.env.CACHE_STALE_MIN       ?? '30',
 }
 
+// ── Queue types ────────────────────────────────────────────────────────────────
+
+export type TaskStatus = 'pending' | 'running' | 'done' | 'failed' | 'skipped'
+
+export interface Task {
+  id:           number
+  description:  string
+  cwd:          string
+  status:       TaskStatus
+  result:       string | null
+  session_id:   string | null
+  session_path: string | null
+  skill_path:   string | null
+  tool_calls:   number
+  tokens_used:  number
+  created_at:   string
+  started_at:   string | null
+  finished_at:  string | null
+}
+
+export interface Skill {
+  id:          number
+  name:        string
+  description: string
+  task_id:     number
+  session_id:  string
+  tool_calls:  number
+  path:        string
+  created_at:  string
+}
+
 export function migrate(): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS usage_snapshots (
@@ -66,6 +99,33 @@ export function migrate(): void {
       key        TEXT PRIMARY KEY,
       value      TEXT NOT NULL,
       updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS tasks (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      description  TEXT    NOT NULL,
+      cwd          TEXT    NOT NULL DEFAULT '',
+      status       TEXT    NOT NULL DEFAULT 'pending',
+      result       TEXT,
+      session_id   TEXT,
+      session_path TEXT,
+      skill_path   TEXT,
+      tool_calls   INTEGER NOT NULL DEFAULT 0,
+      tokens_used  INTEGER NOT NULL DEFAULT 0,
+      created_at   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+      started_at   TEXT,
+      finished_at  TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS skills (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      name        TEXT NOT NULL,
+      description TEXT NOT NULL,
+      task_id     INTEGER NOT NULL,
+      session_id  TEXT NOT NULL,
+      tool_calls  INTEGER NOT NULL DEFAULT 0,
+      path        TEXT NOT NULL,
+      created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
     );
   `)
 
@@ -128,4 +188,89 @@ export function usageHistory(hours = 48): HistoryBucket[] {
     GROUP BY bucket
     ORDER BY bucket ASC
   `).all(hours) as HistoryBucket[]
+}
+
+// ── Queue: tasks ───────────────────────────────────────────────────────────────
+
+export function addTask(description: string, cwd = ''): Task {
+  return db.prepare(
+    'INSERT INTO tasks (description, cwd) VALUES (?, ?) RETURNING *'
+  ).get(description, cwd || process.env.HOME || '') as Task
+}
+
+export function nextPendingTask(): Task | null {
+  return db.prepare(
+    "SELECT * FROM tasks WHERE status='pending' ORDER BY id ASC LIMIT 1"
+  ).get() as Task | null
+}
+
+export function setTaskRunning(id: number): void {
+  db.prepare(
+    "UPDATE tasks SET status='running', started_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id=?"
+  ).run(id)
+}
+
+export function setTaskDone(id: number, updates: {
+  result?: string; session_id?: string; session_path?: string
+  skill_path?: string; tool_calls?: number; tokens_used?: number
+}): void {
+  db.prepare(`
+    UPDATE tasks SET
+      status='done',
+      finished_at=strftime('%Y-%m-%dT%H:%M:%SZ','now'),
+      result=COALESCE(?,result),
+      session_id=COALESCE(?,session_id),
+      session_path=COALESCE(?,session_path),
+      skill_path=COALESCE(?,skill_path),
+      tool_calls=COALESCE(?,tool_calls),
+      tokens_used=COALESCE(?,tokens_used)
+    WHERE id=?
+  `).run(
+    updates.result ?? null, updates.session_id ?? null, updates.session_path ?? null,
+    updates.skill_path ?? null, updates.tool_calls ?? null, updates.tokens_used ?? null,
+    id
+  )
+}
+
+export function setTaskFailed(id: number, error: string): void {
+  db.prepare(
+    "UPDATE tasks SET status='failed', result=?, finished_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id=?"
+  ).run(error, id)
+}
+
+export function getTasks(limit = 50): Task[] {
+  return db.prepare('SELECT * FROM tasks ORDER BY id DESC LIMIT ?').all(limit) as Task[]
+}
+
+export function getTask(id: number): Task | null {
+  return db.prepare('SELECT * FROM tasks WHERE id=?').get(id) as Task | null
+}
+
+export function deleteTask(id: number): void {
+  db.prepare("DELETE FROM tasks WHERE id=? AND status='pending'").run(id)
+}
+
+// ── Queue: skills ──────────────────────────────────────────────────────────────
+
+export function recordSkill(skill: Omit<Skill, 'id' | 'created_at'>): void {
+  db.prepare(
+    'INSERT INTO skills (name, description, task_id, session_id, tool_calls, path) VALUES (?,?,?,?,?,?)'
+  ).run(skill.name, skill.description, skill.task_id, skill.session_id, skill.tool_calls, skill.path)
+}
+
+export function getSkills(limit = 20): Skill[] {
+  return db.prepare('SELECT * FROM skills ORDER BY id DESC LIMIT ?').all(limit) as Skill[]
+}
+
+export function queueStats(): { pending: number; running: number; done: number; failed: number; skills: number } {
+  const row = db.prepare(`
+    SELECT
+      SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) AS pending,
+      SUM(CASE WHEN status='running' THEN 1 ELSE 0 END) AS running,
+      SUM(CASE WHEN status='done'    THEN 1 ELSE 0 END) AS done,
+      SUM(CASE WHEN status='failed'  THEN 1 ELSE 0 END) AS failed
+    FROM tasks
+  `).get() as { pending: number; running: number; done: number; failed: number }
+  const skills = (db.prepare('SELECT COUNT(*) AS n FROM skills').get() as { n: number }).n
+  return { ...row, skills }
 }

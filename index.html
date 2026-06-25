@@ -143,6 +143,10 @@
       <div class="dot" id="status-dot"></div>
       <span id="status-label">—</span>
     </div>
+    <div style="display:flex;gap:4px;margin-left:8px">
+      <button id="tab-dash" onclick="switchTab('dash')" style="background:var(--accent);color:white;border:none;border-radius:6px;padding:5px 10px;cursor:pointer;font-family:inherit;font-size:12px">Dashboard</button>
+      <button id="tab-queue" onclick="switchTab('queue')" style="background:var(--card);color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;font-family:inherit;font-size:12px">Queue</button>
+    </div>
     <button class="gear-btn" title="Settings" onclick="openSettings()">⚙</button>
   </div>
 </header>
@@ -193,6 +197,37 @@
   <div class="section">
     <h2>Predictions</h2>
     <div class="predictions" id="predictions"></div>
+  </div>
+</main>
+
+<!-- Queue panel -->
+<main id="queue-panel" style="display:none">
+  <div class="section" style="margin-bottom:16px">
+    <h2>Add task to queue</h2>
+    <textarea id="q-desc" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-family:inherit;font-size:13px;resize:vertical;min-height:64px;box-sizing:border-box" placeholder="What should Claude do overnight?&#10;e.g. Add integration tests for the ledger service in ~/dev/agentnet"></textarea>
+    <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+      <span style="color:var(--muted);white-space:nowrap;font-size:12px">cwd:</span>
+      <input type="text" id="q-cwd" style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-family:inherit;font-size:13px" placeholder="~/dev/myproject (blank = home)">
+      <button onclick="queueAddTask()" style="background:var(--accent);color:white;border:none;border-radius:6px;padding:7px 14px;cursor:pointer;font-family:inherit;font-size:13px;white-space:nowrap">Add to queue</button>
+    </div>
+  </div>
+
+  <div class="section" style="margin-bottom:16px">
+    <h2 style="display:flex;justify-content:space-between">
+      Task queue
+      <span style="font-size:10px;font-weight:400;letter-spacing:0">
+        <span id="q-stat-pending" style="color:#f59e0b">0 pending</span> ·
+        <span id="q-stat-running" style="color:#3b82f6">0 running</span> ·
+        <span id="q-stat-done" style="color:#22c55e">0 done</span> ·
+        <span id="q-stat-failed" style="color:#ef4444">0 failed</span>
+      </span>
+    </h2>
+    <div id="q-task-list"><div style="color:var(--muted);text-align:center;padding:20px;font-style:italic">No tasks yet</div></div>
+  </div>
+
+  <div class="section">
+    <h2>Auto-generated skills <span id="q-skill-count" style="font-size:10px;font-weight:400;letter-spacing:0;color:var(--muted)"></span></h2>
+    <div id="q-skill-list"><div style="color:var(--muted);text-align:center;padding:20px;font-style:italic">No skills yet — written after sessions with 5+ tool calls</div></div>
   </div>
 </main>
 
@@ -637,6 +672,112 @@ async function init() {
   await fetch('/sync', { method: 'POST' }).catch(() => {});
   await refresh();
   setInterval(refresh, 60000);
+}
+
+// ── Queue tab ──────────────────────────────────────────────────────────────────
+
+let activeTab = 'dash'
+
+function switchTab(tab) {
+  activeTab = tab
+  document.querySelector('main:not(#queue-panel)').style.display = tab === 'dash' ? '' : 'none'
+  document.getElementById('queue-panel').style.display = tab === 'queue' ? '' : 'none'
+  document.getElementById('tab-dash').style.cssText  = tab === 'dash'
+    ? 'background:var(--accent);color:white;border:none;border-radius:6px;padding:5px 10px;cursor:pointer;font-family:inherit;font-size:12px'
+    : 'background:var(--card);color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;font-family:inherit;font-size:12px'
+  document.getElementById('tab-queue').style.cssText = tab === 'queue'
+    ? 'background:var(--accent);color:white;border:none;border-radius:6px;padding:5px 10px;cursor:pointer;font-family:inherit;font-size:12px'
+    : 'background:var(--card);color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;font-family:inherit;font-size:12px'
+  if (tab === 'queue') refreshQueue()
+}
+
+function qTimeSince(iso) {
+  if (!iso) return ''
+  const d = (Date.now() - new Date(iso).getTime()) / 1000
+  if (d < 60) return `${Math.round(d)}s ago`
+  if (d < 3600) return `${Math.round(d/60)}m ago`
+  return `${Math.round(d/3600)}h ago`
+}
+
+function qBadge(status) {
+  const colors = { pending:'#f59e0b', running:'#3b82f6', done:'#22c55e', failed:'#ef4444' }
+  const c = colors[status] || '#64748b'
+  return `<span style="display:inline-block;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:600;text-transform:uppercase;background:${c}22;color:${c}">${status}</span>`
+}
+
+async function refreshQueue() {
+  const [statsRes, tasksRes, skillsRes] = await Promise.all([
+    fetch('/queue/stats').then(r => r.json()).catch(() => ({})),
+    fetch('/queue').then(r => r.json()).catch(() => ({ tasks: [] })),
+    fetch('/queue/skills').then(r => r.json()).catch(() => ({ skills: [] })),
+  ])
+
+  document.getElementById('q-stat-pending').textContent = `${statsRes.pending ?? 0} pending`
+  document.getElementById('q-stat-running').textContent = `${statsRes.running ?? 0} running`
+  document.getElementById('q-stat-done').textContent    = `${statsRes.done ?? 0} done`
+  document.getElementById('q-stat-failed').textContent  = `${statsRes.failed ?? 0} failed`
+
+  const tasks = tasksRes.tasks ?? []
+  const tEl = document.getElementById('q-task-list')
+  if (!tasks.length) {
+    tEl.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;font-style:italic">No tasks yet</div>'
+  } else {
+    tEl.innerHTML = tasks.map(t => `
+      <div style="display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:start;padding:10px 0;border-bottom:1px solid var(--border)">
+        <span style="color:var(--muted);font-size:11px;min-width:28px">#${t.id}</span>
+        <div>
+          <div style="font-size:13px;line-height:1.5">${t.description}</div>
+          <div style="color:var(--muted);font-size:11px;margin-top:3px">
+            ${t.cwd ? `${t.cwd} · ` : ''}added ${qTimeSince(t.created_at)}${t.finished_at ? ` · finished ${qTimeSince(t.finished_at)}` : ''}${t.tool_calls ? ` · ${t.tool_calls} tool calls` : ''}
+          </div>
+          ${t.result ? `<div style="font-size:11px;color:var(--muted);margin-top:4px;cursor:pointer;max-height:48px;overflow:hidden" onclick="this.style.maxHeight=this.style.maxHeight?'':''">${t.result}</div>` : ''}
+          ${t.skill_path ? `<div style="font-size:10px;color:var(--accent);background:rgba(99,102,241,.1);border-radius:4px;padding:2px 6px;margin-top:4px;display:inline-block">⚡ ${t.skill_path.split('/').pop()}</div>` : ''}
+        </div>
+        <div style="display:flex;gap:6px;align-items:center">
+          ${qBadge(t.status)}
+          ${t.status === 'pending' ? `<button onclick="queueDeleteTask(${t.id})" style="background:#ef4444;color:white;border:none;border-radius:4px;padding:3px 7px;cursor:pointer;font-size:11px">✕</button>` : ''}
+        </div>
+      </div>
+    `).join('')
+  }
+
+  const skills = skillsRes.skills ?? []
+  document.getElementById('q-skill-count').textContent = skills.length ? `(${skills.length})` : ''
+  const sEl = document.getElementById('q-skill-list')
+  if (!skills.length) {
+    sEl.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;font-style:italic">No skills yet — written after sessions with 5+ tool calls</div>'
+  } else {
+    sEl.innerHTML = skills.map(s => `
+      <div style="padding:10px 0;border-bottom:1px solid var(--border)">
+        <div style="color:var(--accent);font-weight:600;font-size:13px">⚡ ${s.name}</div>
+        <div style="color:var(--muted);font-size:11px;margin-top:2px">${s.description}</div>
+        <div style="color:var(--border);font-size:10px;margin-top:2px">${s.tool_calls} tool calls · task #${s.task_id} · ${qTimeSince(s.created_at)}</div>
+      </div>
+    `).join('')
+  }
+}
+
+async function queueAddTask() {
+  const desc = document.getElementById('q-desc').value.trim()
+  const cwd  = document.getElementById('q-cwd').value.trim()
+  if (!desc) return alert('Description required')
+  const r = await fetch('/queue', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ description: desc, cwd }),
+  }).then(r => r.json())
+  if (r.ok) {
+    document.getElementById('q-desc').value = ''
+    document.getElementById('q-cwd').value  = ''
+    refreshQueue()
+  } else {
+    alert(r.error)
+  }
+}
+
+async function queueDeleteTask(id) {
+  await fetch(`/queue/${id}`, { method: 'DELETE' })
+  refreshQueue()
 }
 
 init();
