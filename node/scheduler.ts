@@ -2,40 +2,68 @@ import { execFileSync } from 'child_process'
 import { homedir } from 'os'
 import { join } from 'path'
 import { readFileSync, statSync, existsSync } from 'fs'
+import type { Settings } from './db.js'
 
-export const USAGE_CACHE = process.env.CLAUDE_USAGE_CACHE
+export const USAGE_CACHE: string = process.env.CLAUDE_USAGE_CACHE
   ?? join(homedir(), '.claude', '.usage_cache.json')
 
-const USAGE_API      = 'https://api.anthropic.com/api/oauth/usage'
-const KEYCHAIN_SVC   = 'Claude Code-credentials'
-const MEM_CACHE_TTL  = 300_000  // 5 min in ms
+const USAGE_API     = 'https://api.anthropic.com/api/oauth/usage'
+const KEYCHAIN_SVC  = 'Claude Code-credentials'
+const MEM_CACHE_TTL = 300_000  // 5 min in ms
 
-let memCache = null
+export interface UsageData {
+  five_hour_pct:    number
+  weekly_pct:       number
+  weekly_resets_at: string | null
+  age_s:            number
+  stale:            boolean
+  source:           'api' | 'file'
+}
+
+export interface CanRunResult {
+  ok:             boolean
+  provider:       'max' | null
+  reason:         string
+  next_idle_in_s: number
+}
+
+interface KeychainOAuth {
+  accessToken?: string
+  refreshToken?: string
+  expiresAt?:   number
+}
+
+interface ApiUsageResponse {
+  five_hour?: { utilization?: number; resets_at?: string }
+  seven_day?: { utilization?: number; resets_at?: string }
+}
+
+let memCache: UsageData | null = null
 let memCacheTs = 0
 
 // ── OAuth token ────────────────────────────────────────────────────────────────
 
-export function readKeychainToken() {
+export function readKeychainToken(): string | null {
   try {
     const raw = execFileSync('security', ['find-generic-password', '-s', KEYCHAIN_SVC, '-w'], {
       encoding: 'utf8', timeout: 5000, stdio: ['pipe', 'pipe', 'ignore'],
     }).trim()
-    const data = JSON.parse(raw)
-    const oauth = data?.claudeAiOauth ?? {}
+    const data = JSON.parse(raw) as { claudeAiOauth?: KeychainOAuth }
+    const oauth = data.claudeAiOauth ?? {}
     if (oauth.expiresAt && Date.now() > oauth.expiresAt) {
       console.warn('[scheduler] OAuth token expired — waiting for Claude Code to refresh it')
       return null
     }
     return oauth.accessToken ?? null
   } catch (e) {
-    console.warn('[scheduler] keychain read failed:', e.message)
+    console.warn('[scheduler] keychain read failed:', (e as Error).message)
     return null
   }
 }
 
 // ── Live API fetch ─────────────────────────────────────────────────────────────
 
-export async function fetchUsageFromApi() {
+export async function fetchUsageFromApi(): Promise<UsageData | null> {
   const token = readKeychainToken()
   if (!token) return null
 
@@ -56,7 +84,7 @@ export async function fetchUsageFromApi() {
       console.warn(`[scheduler] API HTTP ${resp.status}`)
       return null
     }
-    const data = await resp.json()
+    const data = await resp.json() as ApiUsageResponse
     const fiveH  = data.five_hour  ?? {}
     const sevenD = data.seven_day  ?? {}
     if (fiveH.utilization == null || sevenD.utilization == null) return null
@@ -70,19 +98,24 @@ export async function fetchUsageFromApi() {
       source:           'api',
     }
   } catch (e) {
-    console.warn('[scheduler] API fetch failed:', e.message)
+    console.warn('[scheduler] API fetch failed:', (e as Error).message)
     return null
   }
 }
 
 // ── File fallback ──────────────────────────────────────────────────────────────
 
-function readUsageFromFile(cacheStaleS = 1800) {
+function readUsageFromFile(cacheStaleS = 1800): UsageData | null {
   if (!existsSync(USAGE_CACHE)) return null
   try {
     const ageS = (Date.now() - statSync(USAGE_CACHE).mtimeMs) / 1000
-    const data = JSON.parse(readFileSync(USAGE_CACHE, 'utf8'))
-    const rl   = data.rate_limits ?? {}
+    const data = JSON.parse(readFileSync(USAGE_CACHE, 'utf8')) as {
+      rate_limits?: {
+        five_hour?: { used_percentage?: number }
+        seven_day?: { used_percentage?: number; resets_at?: number }
+      }
+    }
+    const rl        = data.rate_limits ?? {}
     const fiveHPct  = rl.five_hour?.used_percentage
     const weeklyPct = rl.seven_day?.used_percentage
     if (fiveHPct == null || weeklyPct == null) return null
@@ -96,14 +129,14 @@ function readUsageFromFile(cacheStaleS = 1800) {
       source:           'file',
     }
   } catch (e) {
-    console.warn('[scheduler] file read failed:', e.message)
+    console.warn('[scheduler] file read failed:', (e as Error).message)
     return null
   }
 }
 
 // ── TTL cache ──────────────────────────────────────────────────────────────────
 
-export async function readUsage({ cacheStaleS = 1800, forceRefresh = false } = {}) {
+export async function readUsage({ cacheStaleS = 1800, forceRefresh = false } = {}): Promise<UsageData | null> {
   const now = Date.now()
   if (!forceRefresh && memCache && (now - memCacheTs) < MEM_CACHE_TTL) {
     return memCache
@@ -119,7 +152,7 @@ export async function readUsage({ cacheStaleS = 1800, forceRefresh = false } = {
 
 // ── Time gate ──────────────────────────────────────────────────────────────────
 
-function localHour(date, tz) {
+function localHour(date: Date, tz: string): number {
   try {
     return parseInt(
       new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', hour12: false }).format(date)
@@ -129,12 +162,12 @@ function localHour(date, tz) {
   }
 }
 
-export function isCodingWindow(now = new Date(), startH = 16, endH = 2, tz = 'America/Los_Angeles') {
+export function isCodingWindow(now = new Date(), startH = 16, endH = 2, tz = 'America/Los_Angeles'): boolean {
   const h = localHour(now, tz)
   return h >= startH || h < endH
 }
 
-export function nextIdleInS(now = new Date(), startH = 16, endH = 2, tz = 'America/Los_Angeles') {
+export function nextIdleInS(now = new Date(), startH = 16, endH = 2, tz = 'America/Los_Angeles'): number {
   if (!isCodingWindow(now, startH, endH, tz)) return 0
   const h = localHour(now, tz)
   const m = now.getMinutes()
@@ -147,14 +180,14 @@ export function nextIdleInS(now = new Date(), startH = 16, endH = 2, tz = 'Ameri
 
 // ── Gate check ─────────────────────────────────────────────────────────────────
 
-export async function canRun(usage, cfg) {
-  const startH    = parseInt(cfg.CODING_START_H    ?? 16)
-  const endH      = parseInt(cfg.CODING_END_H      ?? 2)
-  const tz        = cfg.TIMEZONE                   ?? 'America/Los_Angeles'
-  const fiveHT    = parseFloat(cfg.FIVE_HOUR_PAUSE_PCT  ?? 75)
-  const reserve   = parseFloat(cfg.WEEKLY_RESERVE_PCT   ?? 35)
-  const hardStop  = parseFloat(cfg.WEEKLY_HARD_STOP_PCT ?? 90)
-  const staleS    = parseFloat(cfg.CACHE_STALE_MIN      ?? 30) * 60
+export async function canRun(usage: UsageData | null, cfg: Settings): Promise<CanRunResult> {
+  const startH   = parseInt(cfg.CODING_START_H)
+  const endH     = parseInt(cfg.CODING_END_H)
+  const tz       = cfg.TIMEZONE
+  const fiveHT   = parseFloat(cfg.FIVE_HOUR_PAUSE_PCT)
+  const reserve  = parseFloat(cfg.WEEKLY_RESERVE_PCT)
+  const hardStop = parseFloat(cfg.WEEKLY_HARD_STOP_PCT)
+  const staleS   = parseFloat(cfg.CACHE_STALE_MIN) * 60
 
   const now = new Date()
 
@@ -162,28 +195,25 @@ export async function canRun(usage, cfg) {
     const idleIn = nextIdleInS(now, startH, endH, tz)
     return {
       ok: false, provider: null, next_idle_in_s: idleIn,
-      reason: `coding window (${startH}:00–${endH}:00 ${tz}); idle in ${Math.floor(idleIn/60)}m`,
+      reason: `coding window (${startH}:00–${endH}:00 ${tz}); idle in ${Math.floor(idleIn / 60)}m`,
     }
   }
 
   const u = usage ?? await readUsage({ cacheStaleS: staleS })
 
   if (u && !u.stale) {
-    const fiveH   = u.five_hour_pct
-    const weekly  = u.weekly_pct
     const ceiling = 100 - reserve
-
-    if (fiveH >= fiveHT) return {
+    if (u.five_hour_pct >= fiveHT) return {
       ok: false, provider: null, next_idle_in_s: 0,
-      reason: `5h=${fiveH.toFixed(0)}% ≥ ${fiveHT.toFixed(0)}% — pausing to protect coding budget`,
+      reason: `5h=${u.five_hour_pct.toFixed(0)}% ≥ ${fiveHT.toFixed(0)}% — pausing to protect coding budget`,
     }
-    if (weekly >= hardStop) return {
+    if (u.weekly_pct >= hardStop) return {
       ok: false, provider: null, next_idle_in_s: 0,
-      reason: `weekly=${weekly.toFixed(0)}% ≥ ${hardStop.toFixed(0)}% — hard stop until ${u.weekly_resets_at ?? '?'}`,
+      reason: `weekly=${u.weekly_pct.toFixed(0)}% ≥ ${hardStop.toFixed(0)}% — hard stop until ${u.weekly_resets_at ?? '?'}`,
     }
-    if (weekly >= ceiling) return {
+    if (u.weekly_pct >= ceiling) return {
       ok: false, provider: null, next_idle_in_s: 0,
-      reason: `weekly=${weekly.toFixed(0)}% ≥ ${ceiling.toFixed(0)}% — reserving ${reserve.toFixed(0)}% for coding`,
+      reason: `weekly=${u.weekly_pct.toFixed(0)}% ≥ ${ceiling.toFixed(0)}% — reserving ${reserve.toFixed(0)}% for coding`,
     }
   }
 

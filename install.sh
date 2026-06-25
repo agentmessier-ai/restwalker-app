@@ -5,7 +5,7 @@ INSTALL_DIR="$(cd "$(dirname "$0")" && pwd)"
 DATA_DIR="$HOME/.restwalker"
 PLIST_SRC="$INSTALL_DIR/com.restwalker.plist"
 PLIST_DST="$HOME/Library/LaunchAgents/com.restwalker.plist"
-RUNTIME="python"  # default
+RUNTIME="node"  # default
 
 # ── Parse args ────────────────────────────────────────────────────────────────
 for arg in "$@"; do
@@ -35,10 +35,13 @@ if [ "$RUNTIME" = "node" ]; then
   echo "    node        : $NODE ($("$NODE" --version))"
   echo ""
   echo "==> Installing Node dependencies..."
-  (cd "$INSTALL_DIR/node" && npm install --omit=dev --quiet)
+  (cd "$INSTALL_DIR/node" && npm install --quiet)
+
+  TSX="$INSTALL_DIR/node/node_modules/.bin/tsx"
 
   PROGRAM_ARGS="<string>$NODE</string>
-    <string>$INSTALL_DIR/node/app.js</string>"
+    <string>$TSX</string>
+    <string>$INSTALL_DIR/node/app.ts</string>"
 
 # ── Runtime: Python ───────────────────────────────────────────────────────────
 else
