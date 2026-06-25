@@ -227,8 +227,10 @@
     <textarea id="q-desc" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-family:inherit;font-size:13px;resize:vertical;min-height:64px;box-sizing:border-box" placeholder="What should Claude do overnight?&#10;e.g. Add integration tests for the ledger service in ~/dev/agentnet"></textarea>
     <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
       <span style="color:var(--muted);white-space:nowrap;font-size:12px">cwd:</span>
-      <input type="text" id="q-cwd" list="q-cwd-list" style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-family:inherit;font-size:13px" placeholder="project directory (or pick from list)">
-      <datalist id="q-cwd-list"></datalist>
+      <select id="q-cwd-select" onchange="qCwdSelectChange()" style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-family:inherit;font-size:13px;cursor:pointer">
+        <option value="">— loading projects… —</option>
+      </select>
+      <input type="text" id="q-cwd-custom" style="flex:1;display:none;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-family:inherit;font-size:13px" placeholder="enter path…">
     </div>
     <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
       <select id="q-schedule" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-family:inherit;font-size:12px;cursor:pointer">
@@ -838,9 +840,27 @@ function providerEdit(id) {
 
 async function loadProjects() {
   const data = await fetch('/projects').then(r => r.json()).catch(() => null)
-  if (!data?.projects?.length) return
-  const dl = document.getElementById('q-cwd-list')
-  dl.innerHTML = data.projects.map(p => `<option value="${p.cwd}">`).join('')
+  const sel = document.getElementById('q-cwd-select')
+  const projects = data?.projects ?? []
+  sel.innerHTML =
+    `<option value="">— home dir (blank) —</option>` +
+    projects.map(p => {
+      const label = p.cwd.replace('~/', '~/').replace('~', '~')
+      return `<option value="${p.cwd}">${label}</option>`
+    }).join('') +
+    `<option value="__custom__">Other…</option>`
+}
+
+function qCwdSelectChange() {
+  const sel    = document.getElementById('q-cwd-select')
+  const custom = document.getElementById('q-cwd-custom')
+  if (sel.value === '__custom__') {
+    custom.style.display = 'block'
+    custom.focus()
+  } else {
+    custom.style.display = 'none'
+    custom.value = ''
+  }
 }
 
 async function loadModels() {
@@ -1086,7 +1106,10 @@ function qToggleExpand(taskId, event) {
 
 async function queueAddTask() {
   const desc       = document.getElementById('q-desc').value.trim()
-  const cwd        = document.getElementById('q-cwd').value.trim()
+  const selVal     = document.getElementById('q-cwd-select').value
+  const cwd        = selVal === '__custom__'
+    ? document.getElementById('q-cwd-custom').value.trim()
+    : selVal
   const model      = document.getElementById('q-model').value
   const providerRaw = document.getElementById('q-provider').value
   const provider_id = providerRaw ? parseInt(providerRaw) : undefined
@@ -1099,7 +1122,9 @@ async function queueAddTask() {
   }).then(r => r.json())
   if (r.ok) {
     document.getElementById('q-desc').value = ''
-    document.getElementById('q-cwd').value  = ''
+    document.getElementById('q-cwd-select').value = ''
+    document.getElementById('q-cwd-custom').style.display = 'none'
+    document.getElementById('q-cwd-custom').value = ''
     refreshQueue()
   } else {
     alert(r.error)
