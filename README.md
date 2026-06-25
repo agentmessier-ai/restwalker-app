@@ -36,7 +36,7 @@ When `ok=true`, the caller runs the job on `provider=max`. When `ok=false`, it s
 
 ## Install
 
-**Requirements:** macOS, Python 3.11+, Claude Code CLI (must be logged in)
+**Requirements:** macOS, Node.js 20+, Claude Code CLI (must be logged in)
 
 ```bash
 git clone https://github.com/agentmessier-ai/restwalker.git
@@ -44,17 +44,12 @@ cd restwalker
 ./install.sh
 ```
 
-`install.sh` will:
-1. Install Python dependencies
-2. Patch the LaunchAgent plist with your Python path and home directory
-3. Copy it to `~/Library/LaunchAgents/` and load it
-
 Open `http://localhost:47290` to confirm it's running.
 
-### Custom Python path
+### Custom Node path
 
 ```bash
-PYTHON=/opt/homebrew/bin/python3 ./install.sh
+NODE=/opt/homebrew/bin/node ./install.sh
 ```
 
 ## Uninstall
@@ -63,23 +58,22 @@ PYTHON=/opt/homebrew/bin/python3 ./install.sh
 ./uninstall.sh
 ```
 
-Stops the service, removes the LaunchAgent, and optionally deletes `~/.restwalker/` (DB + logs). The app directory is left in place — delete it manually if you want.
+Stops the service, removes the LaunchAgent, and optionally deletes `~/.restwalker/` (DB + logs).
 
 ## Wiring up a job runner
 
 Query `/can-run` before starting any background job:
 
-```python
-import httpx
-
-async def can_run() -> bool:
-    try:
-        resp = await httpx.AsyncClient(timeout=5).get(
-            "http://localhost:47290/can-run", params={"project": "my-project"}
-        )
-        return resp.json().get("ok", True)
-    except Exception:
-        return True  # restwalker unreachable — proceed anyway
+```js
+async function canRun() {
+  try {
+    const res = await fetch('http://localhost:47290/can-run?project=my-project')
+    const { ok } = await res.json()
+    return ok
+  } catch {
+    return true  // restwalker unreachable — proceed anyway
+  }
+}
 ```
 
 ## API
@@ -95,16 +89,15 @@ async def can_run() -> bool:
 
 ## Files
 
-| File | Purpose |
+| Path | Purpose |
 |---|---|
-| `app.py` | FastAPI app, FSEvents watcher, background poller |
-| `scheduler.py` | Time gating, Anthropic API fetch, budget logic |
-| `db.py` | SQLite: usage_snapshots + settings tables |
+| `node/app.js` | Fastify app, chokidar watcher, background poller |
+| `node/scheduler.js` | Keychain read, Anthropic API fetch, time gate, budget logic |
+| `node/db.js` | better-sqlite3: migrations, snapshots, settings |
 | `index.html` | Dashboard UI (Chart.js, no build step) |
-| `requirements.txt` | Python dependencies |
-| `com.restwalker.plist` | LaunchAgent template |
 | `install.sh` | One-command installer |
 | `uninstall.sh` | Clean removal |
+| `archive/python/` | Original Python implementation (reference) |
 
 ## Logs
 
