@@ -142,6 +142,40 @@ app.post('/settings', async (req, reply) => {
   }
 })
 
+// ── Providers ──────────────────────────────────────────────────────────────────
+
+app.get('/providers', async () => ({ providers: db.getProviders() }))
+
+app.post('/providers', async (req, reply) => {
+  const { name, command, args_template } = req.body as { name?: string; command?: string; args_template?: string }
+  if (!name?.trim() || !command?.trim()) return reply.code(400).send({ error: 'name and command required' })
+  const provider = db.addProvider(name.trim(), command.trim(), args_template?.trim() || '["{{task}}"]')
+  return { ok: true, provider }
+})
+
+app.put('/providers/:id', async (req, reply) => {
+  const id = parseInt((req.params as { id: string }).id)
+  if (!db.getProvider(id)) return reply.code(404).send({ error: 'not found' })
+  const { name, command, args_template } = req.body as Partial<db.Provider>
+  db.updateProvider(id, { name, command, args_template })
+  return { ok: true }
+})
+
+app.post('/providers/:id/default', async (req, reply) => {
+  const id = parseInt((req.params as { id: string }).id)
+  if (!db.getProvider(id)) return reply.code(404).send({ error: 'not found' })
+  db.setDefaultProvider(id)
+  return { ok: true }
+})
+
+app.delete('/providers/:id', async (req, reply) => {
+  const id = parseInt((req.params as { id: string }).id)
+  if (!db.getProvider(id)) return reply.code(404).send({ error: 'not found' })
+  if (db.getProviders().length <= 1) return reply.code(409).send({ error: 'cannot delete last provider' })
+  db.deleteProvider(id)
+  return { ok: true }
+})
+
 // ── Projects ───────────────────────────────────────────────────────────────────
 
 app.get('/projects', async () => {
@@ -228,9 +262,9 @@ app.get('/queue/:id', async (req, reply) => {
 })
 
 app.post('/queue', async (req, reply) => {
-  const { description, cwd, model } = req.body as { description?: string; cwd?: string; model?: string }
+  const { description, cwd, model, provider_id } = req.body as { description?: string; cwd?: string; model?: string; provider_id?: number }
   if (!description?.trim()) return reply.code(400).send({ error: 'description required' })
-  const task = db.addTask(description.trim(), cwd?.trim(), model?.trim())
+  const task = db.addTask(description.trim(), cwd?.trim(), model?.trim(), provider_id)
   enqueueTask(task)
   app.log.info(`[queue] added #${task.id}: ${description.slice(0, 80)}`)
   return { ok: true, task }

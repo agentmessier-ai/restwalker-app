@@ -10,9 +10,27 @@ import { findSessionJsonl, analyzeSession, skillify } from './skillifier.js'
 const require = createRequire(import.meta.url)
 const SqliteStore = require('better-queue-sqlite')
 
-const QUEUE_DB   = join(homedir(), '.restwalker', 'queue.db')
-const CLAUDE_BIN = process.env.CLAUDE_BIN ?? 'claude'
-const POLL_MS    = parseInt(process.env.QUEUE_POLL_MS ?? '120000')
+const QUEUE_DB = join(homedir(), '.restwalker', 'queue.db')
+const POLL_MS  = parseInt(process.env.QUEUE_POLL_MS ?? '120000')
+
+function resolveProvider(task: db.Task): { command: string; args: string[] } {
+  const provider = task.provider_id
+    ? db.getProvider(task.provider_id)
+    : db.getDefaultProvider()
+  if (!provider) throw new Error('no agent provider configured')
+
+  const cwd   = task.cwd || process.env.HOME || '.'
+  const model = task.model || 'claude-sonnet-4-6'
+  let template: string[]
+  try { template = JSON.parse(provider.args_template) } catch { template = [provider.args_template] }
+
+  const args = template.map(a =>
+    a.replace(/\{\{task\}\}/g,  task.description)
+     .replace(/\{\{model\}\}/g, model)
+     .replace(/\{\{cwd\}\}/g,   cwd)
+  )
+  return { command: provider.command, args }
+}
 
 async function gateOpen(): Promise<boolean> {
   try {
@@ -46,11 +64,9 @@ async function processTask(input: QueuePayload): Promise<void> {
   const cwd = task.cwd || process.env.HOME || '.'
 
   return new Promise((resolve, reject) => {
-    const proc = spawn(CLAUDE_BIN, [
-      '--print', '--permission-mode', 'auto', '--output-format', 'text',
-      '--model', task.model || 'claude-sonnet-4-6',
-      task.description,
-    ], { cwd, env: { ...process.env }, stdio: ['ignore', 'pipe', 'pipe'] })
+    const { command, args } = resolveProvider(task)
+    console.log(`[queue] spawn: ${command} ${args.map(a => a.length > 60 ? a.slice(0,60)+'…' : a).join(' ')}`)
+    const proc = spawn(command, args, { cwd, env: { ...process.env }, stdio: ['ignore', 'pipe', 'pipe'] })
 
     const stdout: string[] = []
     const stderr: string[] = []

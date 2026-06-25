@@ -54,6 +54,15 @@ export const SETTING_DEFAULTS: Settings = {
 
 // ── Queue types ────────────────────────────────────────────────────────────────
 
+export interface Provider {
+  id:            number
+  name:          string
+  command:       string
+  args_template: string   // JSON string[] with {{task}} {{model}} {{cwd}} placeholders
+  is_default:    number
+  created_at:    string
+}
+
 export type TaskStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancelled'
 
 export interface Task {
@@ -61,6 +70,7 @@ export interface Task {
   description:  string
   cwd:          string
   model:        string
+  provider_id:  number | null
   status:       TaskStatus
   result:       string | null
   session_id:   string | null
@@ -83,6 +93,11 @@ export interface Skill {
   path:        string
   created_at:  string
 }
+
+const DEFAULT_CLAUDE_ARGS = JSON.stringify([
+  '--print', '--permission-mode', 'auto', '--output-format', 'text',
+  '--model', '{{model}}', '{{task}}',
+])
 
 export function migrate(): void {
   db.exec(`
@@ -119,6 +134,15 @@ export function migrate(): void {
       finished_at  TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS providers (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      name          TEXT    NOT NULL,
+      command       TEXT    NOT NULL,
+      args_template TEXT    NOT NULL DEFAULT '[]',
+      is_default    INTEGER NOT NULL DEFAULT 0,
+      created_at    TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+    );
+
     CREATE TABLE IF NOT EXISTS skills (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
       name        TEXT NOT NULL,
@@ -137,10 +161,21 @@ export function migrate(): void {
   })
   insertMany(SETTING_DEFAULTS)
 
-  // add model column if missing (migration for existing DBs)
+  // column migrations for existing DBs
   const cols = (db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[]).map(c => c.name)
   if (cols.length && !cols.includes('model')) {
     db.exec("ALTER TABLE tasks ADD COLUMN model TEXT NOT NULL DEFAULT 'claude-sonnet-4-6'")
+  }
+  if (cols.length && !cols.includes('provider_id')) {
+    db.exec('ALTER TABLE tasks ADD COLUMN provider_id INTEGER REFERENCES providers(id)')
+  }
+
+  // seed default provider if none exist
+  const pCount = (db.prepare('SELECT COUNT(*) AS n FROM providers').get() as { n: number }).n
+  if (!pCount) {
+    const claudeBin = process.env.CLAUDE_BIN ?? 'claude'
+    db.prepare('INSERT INTO providers (name, command, args_template, is_default) VALUES (?,?,?,1)')
+      .run('Claude Code', claudeBin, DEFAULT_CLAUDE_ARGS)
   }
 
   db.prepare(
@@ -198,14 +233,55 @@ export function usageHistory(hours = 48): HistoryBucket[] {
   `).all(hours) as HistoryBucket[]
 }
 
+// ── Providers ──────────────────────────────────────────────────────────────────
+
+export function getProviders(): Provider[] {
+  return db.prepare('SELECT * FROM providers ORDER BY is_default DESC, id ASC').all() as Provider[]
+}
+
+export function getProvider(id: number): Provider | null {
+  return db.prepare('SELECT * FROM providers WHERE id=?').get(id) as Provider | null
+}
+
+export function getDefaultProvider(): Provider | null {
+  return db.prepare('SELECT * FROM providers WHERE is_default=1 LIMIT 1').get() as Provider | null
+}
+
+export function addProvider(name: string, command: string, argsTemplate: string): Provider {
+  return db.prepare(
+    'INSERT INTO providers (name, command, args_template) VALUES (?,?,?) RETURNING *'
+  ).get(name, command, argsTemplate) as Provider
+}
+
+export function updateProvider(id: number, u: Partial<Pick<Provider, 'name' | 'command' | 'args_template'>>): void {
+  const sets: string[] = [], vals: unknown[] = []
+  if (u.name          !== undefined) { sets.push('name=?');          vals.push(u.name) }
+  if (u.command       !== undefined) { sets.push('command=?');       vals.push(u.command) }
+  if (u.args_template !== undefined) { sets.push('args_template=?'); vals.push(u.args_template) }
+  if (!sets.length) return
+  vals.push(id)
+  db.prepare(`UPDATE providers SET ${sets.join(',')} WHERE id=?`).run(...vals as Parameters<typeof db.prepare>[0][])
+}
+
+export function setDefaultProvider(id: number): void {
+  db.transaction(() => {
+    db.prepare('UPDATE providers SET is_default=0').run()
+    db.prepare('UPDATE providers SET is_default=1 WHERE id=?').run(id)
+  })()
+}
+
+export function deleteProvider(id: number): void {
+  db.prepare('DELETE FROM providers WHERE id=?').run(id)
+}
+
 // ── Queue: tasks ───────────────────────────────────────────────────────────────
 
 const DEFAULT_MODEL = 'claude-sonnet-4-6'
 
-export function addTask(description: string, cwd = '', model = DEFAULT_MODEL): Task {
+export function addTask(description: string, cwd = '', model = DEFAULT_MODEL, providerId?: number | null): Task {
   return db.prepare(
-    'INSERT INTO tasks (description, cwd, model) VALUES (?, ?, ?) RETURNING *'
-  ).get(description, cwd || process.env.HOME || '', model || DEFAULT_MODEL) as Task
+    'INSERT INTO tasks (description, cwd, model, provider_id) VALUES (?, ?, ?, ?) RETURNING *'
+  ).get(description, cwd || process.env.HOME || '', model || DEFAULT_MODEL, providerId ?? null) as Task
 }
 
 export function setTaskRunning(id: number): void {

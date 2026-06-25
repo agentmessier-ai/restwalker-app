@@ -229,10 +229,13 @@
       <span style="color:var(--muted);white-space:nowrap;font-size:12px">cwd:</span>
       <input type="text" id="q-cwd" list="q-cwd-list" style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-family:inherit;font-size:13px" placeholder="project directory (or pick from list)">
       <datalist id="q-cwd-list"></datalist>
+      <select id="q-provider" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-family:inherit;font-size:12px;cursor:pointer">
+        <option value="">default provider</option>
+      </select>
       <select id="q-model" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-family:inherit;font-size:12px;cursor:pointer">
         <option value="claude-sonnet-4-6">Sonnet 4.6</option>
       </select>
-      <button onclick="queueAddTask()" style="background:var(--accent);color:white;border:none;border-radius:6px;padding:7px 14px;cursor:pointer;font-family:inherit;font-size:13px;white-space:nowrap">Add to queue</button>
+      <button onclick="queueAddTask()" style="background:var(--blue);color:#fff;border:none;border-radius:6px;padding:7px 14px;cursor:pointer;font-family:inherit;font-size:13px;white-space:nowrap">Add to queue</button>
     </div>
   </div>
 
@@ -351,6 +354,27 @@
         <div class="slider-wrap">
           <input type="range" min="5" max="120" id="s-CACHE_STALE_MIN" oninput="document.getElementById('v-CACHE_STALE_MIN').textContent=this.value+'m'">
           <span class="slider-val" id="v-CACHE_STALE_MIN">30m</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <div class="settings-group-title" style="display:flex;justify-content:space-between;align-items:center">
+        Agent Providers
+        <button onclick="providerShowAdd()" style="background:var(--blue);color:#fff;border:none;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;font-family:inherit">+ Add</button>
+      </div>
+      <div id="provider-list" style="margin-bottom:8px"></div>
+      <div id="provider-add-form" style="display:none;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;margin-top:8px">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:8px;font-weight:600">NEW PROVIDER</div>
+        <div style="display:grid;gap:6px">
+          <input id="p-name" placeholder="Name (e.g. opencode)" style="background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:5px 8px;font-size:12px;font-family:inherit;width:100%">
+          <input id="p-command" placeholder="Command (e.g. /usr/local/bin/opencode)" style="background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:5px 8px;font-size:12px;font-family:var(--mono);width:100%">
+          <textarea id="p-args" rows="3" placeholder='Args template as JSON array&#10;e.g. ["run","--model","{{model}}","{{task}}"]' style="background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:5px 8px;font-size:11px;font-family:var(--mono);width:100%;resize:vertical"></textarea>
+          <div style="font-size:10px;color:var(--muted)">Placeholders: <code>{{task}}</code> <code>{{model}}</code> <code>{{cwd}}</code></div>
+          <div style="display:flex;gap:6px">
+            <button onclick="providerSaveAdd()" style="background:var(--blue);color:#fff;border:none;border-radius:4px;padding:4px 12px;font-size:12px;cursor:pointer;font-family:inherit">Save</button>
+            <button onclick="providerHideAdd()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:4px 10px;font-size:12px;cursor:pointer;font-family:inherit">Cancel</button>
+          </div>
         </div>
       </div>
     </div>
@@ -646,6 +670,7 @@ const SETTING_KEYS = ['CODING_START_H','CODING_END_H','TIMEZONE','FIVE_HOUR_PAUS
 
 async function openSettings() {
   buildHourSelects();
+  loadProviders();
   const res = await fetch('/settings');
   const cfg = await res.json();
   buildTimezoneSelect(cfg.TIMEZONE ?? 'America/Los_Angeles');
@@ -721,6 +746,86 @@ let qPageSize = 25
 const qExpanded   = new Set()
 const qSessionCache = new Map()
 
+// ── Providers ─────────────────────────────────────────────────────────────────
+
+let _providers = []
+
+async function loadProviders() {
+  const data = await fetch('/providers').then(r => r.json()).catch(() => null)
+  if (!data?.providers) return
+  _providers = data.providers
+  // populate add-task dropdown
+  const sel = document.getElementById('q-provider')
+  sel.innerHTML = `<option value="">default (${_providers.find(p => p.is_default)?.name ?? '—'})</option>` +
+    _providers.map(p => `<option value="${p.id}">${p.name}${p.is_default ? ' ★' : ''}</option>`).join('')
+  // render settings list
+  renderProviderList()
+}
+
+function renderProviderList() {
+  const el = document.getElementById('provider-list')
+  if (!el) return
+  if (!_providers.length) { el.innerHTML = '<div style="color:var(--muted);font-size:12px;font-style:italic">No providers</div>'; return }
+  el.innerHTML = _providers.map(p => `
+    <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:start;padding:8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;margin-bottom:6px">
+      <div>
+        <div style="font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px">
+          ${escHtml(p.name)}
+          ${p.is_default ? '<span style="font-size:10px;background:rgba(59,130,246,.2);color:var(--blue);padding:1px 6px;border-radius:3px">default</span>' : ''}
+        </div>
+        <div style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-top:2px">${escHtml(p.command)}</div>
+        <div style="font-size:10px;color:#64748b;font-family:var(--mono);margin-top:2px">${escHtml(p.args_template)}</div>
+      </div>
+      <div style="display:flex;gap:4px;flex-shrink:0">
+        ${!p.is_default ? `<button onclick="providerSetDefault(${p.id})" title="Set as default" style="background:var(--card);border:1px solid var(--border);color:var(--muted);border-radius:4px;padding:2px 6px;font-size:11px;cursor:pointer">★</button>` : ''}
+        <button onclick="providerEdit(${p.id})" style="background:var(--card);border:1px solid var(--border);color:var(--muted);border-radius:4px;padding:2px 6px;font-size:11px;cursor:pointer">✎</button>
+        ${!p.is_default ? `<button onclick="providerDelete(${p.id})" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:var(--red);border-radius:4px;padding:2px 6px;font-size:11px;cursor:pointer">✕</button>` : ''}
+      </div>
+    </div>`).join('')
+}
+
+function providerShowAdd() {
+  document.getElementById('provider-add-form').style.display = 'block'
+  document.getElementById('p-name').focus()
+}
+function providerHideAdd() {
+  document.getElementById('provider-add-form').style.display = 'none'
+  document.getElementById('p-name').value = ''
+  document.getElementById('p-command').value = ''
+  document.getElementById('p-args').value = ''
+}
+async function providerSaveAdd() {
+  const name    = document.getElementById('p-name').value.trim()
+  const command = document.getElementById('p-command').value.trim()
+  const args    = document.getElementById('p-args').value.trim()
+  if (!name || !command) { alert('Name and command required'); return }
+  let argsTemplate = args || '["{{task}}"]'
+  try { JSON.parse(argsTemplate) } catch { alert('Args must be a valid JSON array, e.g. ["run","{{task}}"]'); return }
+  const r = await fetch('/providers', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({name, command, args_template: argsTemplate}) }).then(r=>r.json())
+  if (r.ok) { providerHideAdd(); loadProviders() } else { alert(r.error) }
+}
+async function providerSetDefault(id) {
+  await fetch(`/providers/${id}/default`, { method:'POST' })
+  loadProviders()
+}
+async function providerDelete(id) {
+  if (!confirm('Delete this provider?')) return
+  const r = await fetch(`/providers/${id}`, { method:'DELETE' }).then(r=>r.json())
+  if (r.ok) { loadProviders() } else { alert(r.error) }
+}
+function providerEdit(id) {
+  const p = _providers.find(x => x.id === id)
+  if (!p) return
+  const name    = prompt('Name:', p.name);    if (name    === null) return
+  const command = prompt('Command:', p.command); if (command === null) return
+  const args    = prompt('Args template (JSON array):', p.args_template); if (args === null) return
+  try { JSON.parse(args) } catch { alert('Invalid JSON array'); return }
+  fetch(`/providers/${id}`, { method:'PUT', headers:{'content-type':'application/json'}, body:JSON.stringify({name, command, args_template: args}) })
+    .then(() => loadProviders())
+}
+
+// ── Projects ──────────────────────────────────────────────────────────────────
+
 async function loadProjects() {
   const data = await fetch('/projects').then(r => r.json()).catch(() => null)
   if (!data?.projects?.length) return
@@ -750,7 +855,7 @@ function switchTab(tab) {
   document.getElementById('tab-queue').style.cssText = tab === 'queue'
     ? 'background:var(--accent);color:white;border:none;border-radius:6px;padding:5px 10px;cursor:pointer;font-family:inherit;font-size:12px'
     : 'background:var(--card);color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;font-family:inherit;font-size:12px'
-  if (tab === 'queue') { loadModels(); loadProjects(); refreshQueue() }
+  if (tab === 'queue') { loadProviders(); loadModels(); loadProjects(); refreshQueue() }
 }
 
 function qTimeSince(iso) {
@@ -822,7 +927,7 @@ function renderTaskList(tasks) {
             <span>${escHtml(t.description)}</span>
           </div>
           <div style="color:var(--muted);font-size:11px;margin-top:3px;padding-left:18px">
-            ${t.cwd ? `<span>${t.cwd}</span> · ` : ''}${t.model ? `<span style="color:#818cf8">${t.model.replace('claude-','')}</span> · ` : ''}added ${qTimeSince(t.created_at)}${t.finished_at ? ` · finished ${qTimeSince(t.finished_at)}` : ''}${t.tool_calls ? ` · ${t.tool_calls} tools` : ''}${t.tokens_used ? ` · ${t.tokens_used.toLocaleString()} tok` : ''}
+            ${t.cwd ? `<span>${t.cwd}</span> · ` : ''}${(() => { const p = _providers.find(x => x.id === t.provider_id) || _providers.find(x => x.is_default); return p ? `<span style="color:#94a3b8">${escHtml(p.name)}</span> · ` : '' })()}${t.model ? `<span style="color:#818cf8">${t.model.replace('claude-','')}</span> · ` : ''}added ${qTimeSince(t.created_at)}${t.finished_at ? ` · finished ${qTimeSince(t.finished_at)}` : ''}${t.tool_calls ? ` · ${t.tool_calls} tools` : ''}${t.tokens_used ? ` · ${t.tokens_used.toLocaleString()} tok` : ''}
           </div>
           ${t.skill_path ? `<div style="font-size:10px;color:#818cf8;background:rgba(99,102,241,.1);border-radius:4px;padding:2px 6px;margin-top:4px;margin-left:18px;display:inline-block">⚡ ${t.skill_path.split('/').pop()}</div>` : ''}
         </div>
@@ -957,14 +1062,16 @@ function qToggleExpand(taskId, event) {
 }
 
 async function queueAddTask() {
-  const desc  = document.getElementById('q-desc').value.trim()
-  const cwd   = document.getElementById('q-cwd').value.trim()
-  const model = document.getElementById('q-model').value
+  const desc       = document.getElementById('q-desc').value.trim()
+  const cwd        = document.getElementById('q-cwd').value.trim()
+  const model      = document.getElementById('q-model').value
+  const providerRaw = document.getElementById('q-provider').value
+  const provider_id = providerRaw ? parseInt(providerRaw) : undefined
   if (!desc) return alert('Description required')
   const r = await fetch('/queue', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ description: desc, cwd, model }),
+    body: JSON.stringify({ description: desc, cwd, model, provider_id }),
   }).then(r => r.json())
   if (r.ok) {
     document.getElementById('q-desc').value = ''
