@@ -5,7 +5,7 @@ import { join } from 'path'
 import { homedir } from 'os'
 import * as db from './db.js'
 import * as scheduler from './scheduler.js'
-import { findSessionJsonl, analyzeSession, skillify } from './skillifier.js'
+import { findSessionJsonl, analyzeSession } from './session.js'
 
 const require = createRequire(import.meta.url)
 const SqliteStore = require('better-queue-sqlite')
@@ -84,7 +84,6 @@ async function processTask(input: QueuePayload): Promise<void> {
       }
 
       const sessionPath = findSessionJsonl(cwd, startedAt)
-      let skillPath: string | null = null
       let toolCalls = 0
       let tokensUsed = 0
       let sessionId: string | null = null
@@ -95,23 +94,8 @@ async function processTask(input: QueuePayload): Promise<void> {
           toolCalls  = analysis.toolCalls
           tokensUsed = analysis.tokensUsed
           sessionId  = analysis.sessionId
-
-          if (analysis.toolCalls >= 5) {
-            skillPath = skillify(analysis, task.id)
-            if (skillPath) {
-              db.recordSkill({
-                name:        `auto-${analysis.sessionId.slice(0, 8)}`,
-                description: analysis.userRequest.slice(0, 200),
-                task_id:     task.id,
-                session_id:  analysis.sessionId,
-                tool_calls:  analysis.toolCalls,
-                path:        skillPath,
-              })
-              console.log(`[queue] skill written: ${skillPath}`)
-            }
-          }
         } catch (e) {
-          console.warn('[queue] skillifier error:', (e as Error).message)
+          console.warn('[queue] session analysis error:', (e as Error).message)
         }
       }
 
@@ -119,7 +103,6 @@ async function processTask(input: QueuePayload): Promise<void> {
         result: result.slice(0, 1000),
         session_id:   sessionId ?? undefined,
         session_path: sessionPath ?? undefined,
-        skill_path:   skillPath ?? undefined,
         tool_calls:   toolCalls,
         tokens_used:  tokensUsed,
       })

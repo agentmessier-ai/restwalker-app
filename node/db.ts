@@ -1,18 +1,27 @@
-import Database, { type Database as DB } from 'better-sqlite3'
+import Database from 'better-sqlite3'
+import { drizzle } from 'drizzle-orm/better-sqlite3'
+import { eq, desc, asc, sql, and, lte, inArray } from 'drizzle-orm'
 import { existsSync, mkdirSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
+
+import * as schema from './schema.js'
+
+// ── Bootstrap ──────────────────────────────────────────────────────────────────
 
 const DATA_DIR = join(homedir(), '.restwalker')
 if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true })
 
 const DB_PATH = process.env.RESTWALKER_DB ?? join(DATA_DIR, 'restwalker.db')
 
-export const SKILLS_DIR = process.env.SKILLS_DIR ?? join(homedir(), '.claude', 'skills')
 export const CLAUDE_PROJECTS_DIR = join(homedir(), '.claude', 'projects')
 
-const db: DB = new Database(DB_PATH)
-db.pragma('journal_mode = WAL')
+const client = new Database(DB_PATH)
+client.pragma('journal_mode = WAL')
+
+const db = drizzle(client, { schema })
+
+// ── Types ──────────────────────────────────────────────────────────────────────
 
 export interface Settings {
   CODING_START_H:       string
@@ -26,19 +35,24 @@ export interface Settings {
   [key: string]: string
 }
 
+export interface HistoryBucket {
+  bucket:        string
+  five_hour_pct: number
+  weekly_pct:    number
+  samples:       number
+}
+
+export type Provider     = typeof schema.providers.$inferSelect
+export type Task         = typeof schema.tasks.$inferSelect
+export type TaskStatus   = 'scheduled' | 'pending' | 'running' | 'done' | 'failed' | 'cancelled'
+export type TaskSchedule = 'once' | 'hourly' | 'daily' | 'weekly' | 'monthly'
+
 export interface Snapshot {
   id:               number
   five_hour_pct:    number
   weekly_pct:       number
   weekly_resets_at: string | null
   recorded_at:      string
-}
-
-export interface HistoryBucket {
-  bucket:        string
-  five_hour_pct: number
-  weekly_pct:    number
-  samples:       number
 }
 
 export const SETTING_DEFAULTS: Settings = {
@@ -52,50 +66,7 @@ export const SETTING_DEFAULTS: Settings = {
   CACHE_STALE_MIN:      process.env.CACHE_STALE_MIN       ?? '30',
 }
 
-// ── Queue types ────────────────────────────────────────────────────────────────
-
-export interface Provider {
-  id:            number
-  name:          string
-  command:       string
-  args_template: string   // JSON string[] with {{task}} {{model}} {{cwd}} placeholders
-  is_default:    number
-  created_at:    string
-}
-
-export type TaskStatus   = 'scheduled' | 'pending' | 'running' | 'done' | 'failed' | 'cancelled'
-export type TaskSchedule = 'once' | 'hourly' | 'daily' | 'weekly' | 'monthly'
-
-export interface Task {
-  id:           number
-  description:  string
-  cwd:          string
-  model:        string
-  provider_id:  number | null
-  schedule:     TaskSchedule
-  next_run_at:  string | null
-  status:       TaskStatus
-  result:       string | null
-  session_id:   string | null
-  session_path: string | null
-  skill_path:   string | null
-  tool_calls:   number
-  tokens_used:  number
-  created_at:   string
-  started_at:   string | null
-  finished_at:  string | null
-}
-
-export interface Skill {
-  id:          number
-  name:        string
-  description: string
-  task_id:     number
-  session_id:  string
-  tool_calls:  number
-  path:        string
-  created_at:  string
-}
+// ── Schema migration ───────────────────────────────────────────────────────────
 
 const DEFAULT_CLAUDE_ARGS = JSON.stringify([
   '--print', '--permission-mode', 'auto', '--output-format', 'text',
@@ -103,7 +74,7 @@ const DEFAULT_CLAUDE_ARGS = JSON.stringify([
 ])
 
 export function migrate(): void {
-  db.exec(`
+  client.exec(`
     CREATE TABLE IF NOT EXISTS usage_snapshots (
       id               INTEGER PRIMARY KEY AUTOINCREMENT,
       five_hour_pct    REAL    NOT NULL,
@@ -120,6 +91,15 @@ export function migrate(): void {
       updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
     );
 
+    CREATE TABLE IF NOT EXISTS providers (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      name          TEXT    NOT NULL,
+      command       TEXT    NOT NULL,
+      args_template TEXT    NOT NULL DEFAULT '[]',
+      is_default    INTEGER NOT NULL DEFAULT 0,
+      created_at    TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+    );
+
     CREATE TABLE IF NOT EXISTS tasks (
       id           INTEGER PRIMARY KEY AUTOINCREMENT,
       description  TEXT    NOT NULL,
@@ -132,72 +112,49 @@ export function migrate(): void {
       result       TEXT,
       session_id   TEXT,
       session_path TEXT,
-      skill_path   TEXT,
       tool_calls   INTEGER NOT NULL DEFAULT 0,
       tokens_used  INTEGER NOT NULL DEFAULT 0,
       created_at   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
       started_at   TEXT,
       finished_at  TEXT
     );
-
-    CREATE TABLE IF NOT EXISTS providers (
-      id            INTEGER PRIMARY KEY AUTOINCREMENT,
-      name          TEXT    NOT NULL,
-      command       TEXT    NOT NULL,
-      args_template TEXT    NOT NULL DEFAULT '[]',
-      is_default    INTEGER NOT NULL DEFAULT 0,
-      created_at    TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS skills (
-      id          INTEGER PRIMARY KEY AUTOINCREMENT,
-      name        TEXT NOT NULL,
-      description TEXT NOT NULL,
-      task_id     INTEGER NOT NULL,
-      session_id  TEXT NOT NULL,
-      tool_calls  INTEGER NOT NULL DEFAULT 0,
-      path        TEXT NOT NULL,
-      created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
-    );
   `)
 
-  const insert = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)')
-  const insertMany = db.transaction((defaults: Settings) => {
-    for (const [k, v] of Object.entries(defaults)) insert.run(k, v)
+  // Seed settings defaults
+  db.transaction((tx) => {
+    for (const [key, value] of Object.entries(SETTING_DEFAULTS)) {
+      tx.insert(schema.settings).values({ key, value }).onConflictDoNothing().run()
+    }
   })
-  insertMany(SETTING_DEFAULTS)
 
-  // column migrations for existing DBs
-  const cols = (db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[]).map(c => c.name)
-  if (cols.length && !cols.includes('model')) {
-    db.exec("ALTER TABLE tasks ADD COLUMN model TEXT NOT NULL DEFAULT 'claude-sonnet-4-6'")
-  }
-  if (cols.length && !cols.includes('provider_id')) {
-    db.exec('ALTER TABLE tasks ADD COLUMN provider_id INTEGER REFERENCES providers(id)')
-  }
-  if (cols.length && !cols.includes('schedule')) {
-    db.exec("ALTER TABLE tasks ADD COLUMN schedule TEXT NOT NULL DEFAULT 'once'")
-  }
-  if (cols.length && !cols.includes('next_run_at')) {
-    db.exec('ALTER TABLE tasks ADD COLUMN next_run_at TEXT')
-  }
+  // Column migrations for existing DBs
+  const cols = (client.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).map(c => c.name)
+  if (cols.length && !cols.includes('model'))       client.exec("ALTER TABLE tasks ADD COLUMN model TEXT NOT NULL DEFAULT 'claude-sonnet-4-6'")
+  if (cols.length && !cols.includes('provider_id')) client.exec('ALTER TABLE tasks ADD COLUMN provider_id INTEGER REFERENCES providers(id)')
+  if (cols.length && !cols.includes('schedule'))    client.exec("ALTER TABLE tasks ADD COLUMN schedule TEXT NOT NULL DEFAULT 'once'")
+  if (cols.length && !cols.includes('next_run_at')) client.exec('ALTER TABLE tasks ADD COLUMN next_run_at TEXT')
 
-  // seed default provider if none exist
-  const pCount = (db.prepare('SELECT COUNT(*) AS n FROM providers').get() as { n: number }).n
-  if (!pCount) {
-    const claudeBin = process.env.CLAUDE_BIN ?? 'claude'
-    db.prepare('INSERT INTO providers (name, command, args_template, is_default) VALUES (?,?,?,1)')
-      .run('Claude Code', claudeBin, DEFAULT_CLAUDE_ARGS)
+  // Seed default provider
+  const count = db.select({ n: sql<number>`count(*)` }).from(schema.providers).get()!.n
+  if (!count) {
+    db.insert(schema.providers).values({
+      name: 'Claude Code',
+      command: process.env.CLAUDE_BIN ?? 'claude',
+      args_template: DEFAULT_CLAUDE_ARGS,
+      is_default: 1,
+    }).run()
   }
 
-  db.prepare(
-    `DELETE FROM usage_snapshots
-     WHERE recorded_at < strftime('%Y-%m-%dT%H:%M:%SZ','now','-14 days')`
-  ).run()
+  // Prune old snapshots
+  db.delete(schema.usageSnapshots)
+    .where(sql`${schema.usageSnapshots.recorded_at} < strftime('%Y-%m-%dT%H:%M:%SZ','now','-14 days')`)
+    .run()
 }
 
+// ── Settings repository ────────────────────────────────────────────────────────
+
 export function getSettings(): Settings {
-  const rows = db.prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[]
+  const rows = db.select().from(schema.settings).all()
   return { ...SETTING_DEFAULTS, ...Object.fromEntries(rows.map(r => [r.key, r.value])) }
 }
 
@@ -206,31 +163,40 @@ export function updateSettings(updates: Partial<Settings>): void {
   const unknown = Object.keys(updates).filter(k => !allowed.has(k))
   if (unknown.length) throw new Error(`Unknown settings: ${unknown.join(', ')}`)
 
-  const upsert = db.prepare(`
-    INSERT INTO settings (key, value) VALUES (?, ?)
-    ON CONFLICT(key) DO UPDATE SET value=excluded.value,
-    updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')
-  `)
-  const upsertMany = db.transaction((obj: Partial<Settings>) => {
-    for (const [k, v] of Object.entries(obj)) upsert.run(k, String(v))
+  db.transaction((tx) => {
+    for (const [key, value] of Object.entries(updates)) {
+      tx.insert(schema.settings)
+        .values({ key, value: String(value) })
+        .onConflictDoUpdate({
+          target: schema.settings.key,
+          set: {
+            value: String(value),
+            updated_at: sql`(strftime('%Y-%m-%dT%H:%M:%SZ','now'))` as unknown as string,
+          },
+        })
+        .run()
+    }
   })
-  upsertMany(updates)
 }
 
+// ── Snapshots repository ───────────────────────────────────────────────────────
+
 export function recordSnapshot(fiveHourPct: number, weeklyPct: number, weeklyResetsAt: string | null): void {
-  db.prepare(
-    'INSERT INTO usage_snapshots (five_hour_pct, weekly_pct, weekly_resets_at) VALUES (?,?,?)'
-  ).run(fiveHourPct, weeklyPct, weeklyResetsAt)
+  db.insert(schema.usageSnapshots)
+    .values({ five_hour_pct: fiveHourPct, weekly_pct: weeklyPct, weekly_resets_at: weeklyResetsAt })
+    .run()
 }
 
 export function latestSnapshot(): Snapshot | null {
-  return db.prepare(
-    'SELECT * FROM usage_snapshots ORDER BY recorded_at DESC LIMIT 1'
-  ).get() as Snapshot | null
+  return db.select().from(schema.usageSnapshots)
+    .orderBy(desc(schema.usageSnapshots.recorded_at))
+    .limit(1)
+    .get() as Snapshot | null
 }
 
 export function usageHistory(hours = 48): HistoryBucket[] {
-  return db.prepare(`
+  // Complex bucketing expression kept as raw SQL — no Drizzle equivalent for printf+strftime grouping
+  return client.prepare(`
     SELECT
       strftime('%Y-%m-%dT%H:', recorded_at) ||
         printf('%02d', (CAST(strftime('%M', recorded_at) AS INTEGER) / 15) * 15) ||
@@ -245,48 +211,50 @@ export function usageHistory(hours = 48): HistoryBucket[] {
   `).all(hours) as HistoryBucket[]
 }
 
-// ── Providers ──────────────────────────────────────────────────────────────────
+// ── Providers repository ───────────────────────────────────────────────────────
 
 export function getProviders(): Provider[] {
-  return db.prepare('SELECT * FROM providers ORDER BY is_default DESC, id ASC').all() as Provider[]
+  return db.select().from(schema.providers)
+    .orderBy(desc(schema.providers.is_default), asc(schema.providers.id))
+    .all()
 }
 
 export function getProvider(id: number): Provider | null {
-  return db.prepare('SELECT * FROM providers WHERE id=?').get(id) as Provider | null
+  return db.select().from(schema.providers).where(eq(schema.providers.id, id)).get() ?? null
 }
 
 export function getDefaultProvider(): Provider | null {
-  return db.prepare('SELECT * FROM providers WHERE is_default=1 LIMIT 1').get() as Provider | null
+  return db.select().from(schema.providers).where(eq(schema.providers.is_default, 1)).limit(1).get() ?? null
 }
 
 export function addProvider(name: string, command: string, argsTemplate: string): Provider {
-  return db.prepare(
-    'INSERT INTO providers (name, command, args_template) VALUES (?,?,?) RETURNING *'
-  ).get(name, command, argsTemplate) as Provider
+  return db.insert(schema.providers)
+    .values({ name, command, args_template: argsTemplate })
+    .returning()
+    .get()!
 }
 
 export function updateProvider(id: number, u: Partial<Pick<Provider, 'name' | 'command' | 'args_template'>>): void {
-  const sets: string[] = [], vals: unknown[] = []
-  if (u.name          !== undefined) { sets.push('name=?');          vals.push(u.name) }
-  if (u.command       !== undefined) { sets.push('command=?');       vals.push(u.command) }
-  if (u.args_template !== undefined) { sets.push('args_template=?'); vals.push(u.args_template) }
-  if (!sets.length) return
-  vals.push(id)
-  db.prepare(`UPDATE providers SET ${sets.join(',')} WHERE id=?`).run(...vals as Parameters<typeof db.prepare>[0][])
+  const set: Partial<typeof schema.providers.$inferInsert> = {}
+  if (u.name          !== undefined) set.name          = u.name
+  if (u.command       !== undefined) set.command       = u.command
+  if (u.args_template !== undefined) set.args_template = u.args_template
+  if (!Object.keys(set).length) return
+  db.update(schema.providers).set(set).where(eq(schema.providers.id, id)).run()
 }
 
 export function setDefaultProvider(id: number): void {
-  db.transaction(() => {
-    db.prepare('UPDATE providers SET is_default=0').run()
-    db.prepare('UPDATE providers SET is_default=1 WHERE id=?').run(id)
-  })()
+  db.transaction((tx) => {
+    tx.update(schema.providers).set({ is_default: 0 }).run()
+    tx.update(schema.providers).set({ is_default: 1 }).where(eq(schema.providers.id, id)).run()
+  })
 }
 
 export function deleteProvider(id: number): void {
-  db.prepare('DELETE FROM providers WHERE id=?').run(id)
+  db.delete(schema.providers).where(eq(schema.providers.id, id)).run()
 }
 
-// ── Queue: tasks ───────────────────────────────────────────────────────────────
+// ── Tasks repository ───────────────────────────────────────────────────────────
 
 const DEFAULT_MODEL = 'claude-sonnet-4-6'
 
@@ -303,101 +271,112 @@ export function addTask(
   description: string, cwd = '', model = DEFAULT_MODEL,
   providerId?: number | null, schedule: TaskSchedule = 'once',
 ): Task {
-  return db.prepare(
-    'INSERT INTO tasks (description, cwd, model, provider_id, schedule) VALUES (?, ?, ?, ?, ?) RETURNING *'
-  ).get(description, cwd || process.env.HOME || '', model || DEFAULT_MODEL, providerId ?? null, schedule) as Task
+  return db.insert(schema.tasks).values({
+    description,
+    cwd: cwd || process.env.HOME || '',
+    model: model || DEFAULT_MODEL,
+    provider_id: providerId ?? null,
+    schedule,
+  }).returning().get()!
 }
 
 export function createNextRun(task: Task): Task | null {
   if (!task.schedule || task.schedule === 'once') return null
-  return db.prepare(
-    "INSERT INTO tasks (description,cwd,model,provider_id,schedule,status,next_run_at) VALUES (?,?,?,?,?,'scheduled',?) RETURNING *"
-  ).get(task.description, task.cwd, task.model, task.provider_id ?? null, task.schedule, computeNextRun(task.schedule)) as Task
+  return db.insert(schema.tasks).values({
+    description: task.description,
+    cwd:         task.cwd,
+    model:       task.model,
+    provider_id: task.provider_id,
+    schedule:    task.schedule,
+    status:      'scheduled',
+    next_run_at: computeNextRun(task.schedule as TaskSchedule),
+  }).returning().get()!
 }
 
 export function getScheduledDueTasks(): Task[] {
-  return db.prepare(
-    "SELECT * FROM tasks WHERE status='scheduled' AND next_run_at <= strftime('%Y-%m-%dT%H:%M:%SZ','now')"
-  ).all() as Task[]
+  return db.select().from(schema.tasks)
+    .where(and(
+      eq(schema.tasks.status, 'scheduled'),
+      lte(schema.tasks.next_run_at, sql`strftime('%Y-%m-%dT%H:%M:%SZ','now')`),
+    ))
+    .all()
+}
+
+export function getTasks(limit = 25, offset = 0): Task[] {
+  return db.select().from(schema.tasks)
+    .orderBy(desc(schema.tasks.id))
+    .limit(limit)
+    .offset(offset)
+    .all()
+}
+
+export function getTaskCount(): number {
+  return db.select({ n: sql<number>`count(*)` }).from(schema.tasks).get()!.n
+}
+
+export function getTask(id: number): Task | null {
+  return db.select().from(schema.tasks).where(eq(schema.tasks.id, id)).get() ?? null
 }
 
 export function setTaskPending(id: number): void {
-  db.prepare("UPDATE tasks SET status='pending', next_run_at=NULL WHERE id=?").run(id)
+  db.update(schema.tasks)
+    .set({ status: 'pending', next_run_at: null })
+    .where(eq(schema.tasks.id, id))
+    .run()
 }
 
 export function setTaskRunning(id: number): void {
-  db.prepare(
-    "UPDATE tasks SET status='running', started_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id=?"
-  ).run(id)
+  db.update(schema.tasks)
+    .set({ status: 'running', started_at: sql`(strftime('%Y-%m-%dT%H:%M:%SZ','now'))` as unknown as string })
+    .where(eq(schema.tasks.id, id))
+    .run()
 }
 
 export function setTaskDone(id: number, updates: {
   result?: string; session_id?: string; session_path?: string
-  skill_path?: string; tool_calls?: number; tokens_used?: number
+  tool_calls?: number; tokens_used?: number
 }): void {
-  db.prepare(`
-    UPDATE tasks SET
-      status='done',
-      finished_at=strftime('%Y-%m-%dT%H:%M:%SZ','now'),
-      result=COALESCE(?,result),
-      session_id=COALESCE(?,session_id),
-      session_path=COALESCE(?,session_path),
-      skill_path=COALESCE(?,skill_path),
-      tool_calls=COALESCE(?,tool_calls),
-      tokens_used=COALESCE(?,tokens_used)
-    WHERE id=?
-  `).run(
-    updates.result ?? null, updates.session_id ?? null, updates.session_path ?? null,
-    updates.skill_path ?? null, updates.tool_calls ?? null, updates.tokens_used ?? null,
-    id
-  )
+  const NOW_SQL = sql`(strftime('%Y-%m-%dT%H:%M:%SZ','now'))` as unknown as string
+  const set: Partial<typeof schema.tasks.$inferInsert> = {
+    status:      'done',
+    finished_at: NOW_SQL,
+  }
+  if (updates.result       !== undefined) set.result       = updates.result
+  if (updates.session_id   !== undefined) set.session_id   = updates.session_id
+  if (updates.session_path !== undefined) set.session_path = updates.session_path
+  if (updates.tool_calls   !== undefined) set.tool_calls   = updates.tool_calls
+  if (updates.tokens_used  !== undefined) set.tokens_used  = updates.tokens_used
+  db.update(schema.tasks).set(set).where(eq(schema.tasks.id, id)).run()
 }
 
 export function setTaskFailed(id: number, error: string): void {
-  db.prepare(
-    "UPDATE tasks SET status='failed', result=?, finished_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id=?"
-  ).run(error, id)
-}
-
-export function getTasks(limit = 25, offset = 0): Task[] {
-  return db.prepare('SELECT * FROM tasks ORDER BY id DESC LIMIT ? OFFSET ?').all(limit, offset) as Task[]
-}
-
-export function getTaskCount(): number {
-  return (db.prepare('SELECT COUNT(*) AS n FROM tasks').get() as { n: number }).n
-}
-
-export function getTask(id: number): Task | null {
-  return db.prepare('SELECT * FROM tasks WHERE id=?').get(id) as Task | null
+  db.update(schema.tasks)
+    .set({ status: 'failed', result: error, finished_at: sql`(strftime('%Y-%m-%dT%H:%M:%SZ','now'))` as unknown as string })
+    .where(eq(schema.tasks.id, id))
+    .run()
 }
 
 export function cancelTask(id: number): void {
-  db.prepare("UPDATE tasks SET status='cancelled' WHERE id=? AND status IN ('pending','scheduled')").run(id)
+  db.update(schema.tasks)
+    .set({ status: 'cancelled' })
+    .where(and(
+      eq(schema.tasks.id, id),
+      inArray(schema.tasks.status, ['pending', 'scheduled']),
+    ))
+    .run()
 }
 
-// ── Queue: skills ──────────────────────────────────────────────────────────────
-
-export function recordSkill(skill: Omit<Skill, 'id' | 'created_at'>): void {
-  db.prepare(
-    'INSERT INTO skills (name, description, task_id, session_id, tool_calls, path) VALUES (?,?,?,?,?,?)'
-  ).run(skill.name, skill.description, skill.task_id, skill.session_id, skill.tool_calls, skill.path)
-}
-
-export function getSkills(limit = 20): Skill[] {
-  return db.prepare('SELECT * FROM skills ORDER BY id DESC LIMIT ?').all(limit) as Skill[]
-}
-
-export function queueStats(): { scheduled: number; pending: number; running: number; done: number; failed: number; skills: number } {
-  const row = db.prepare(`
+export function queueStats(): { scheduled: number; pending: number; running: number; done: number; failed: number; total: number } {
+  // Conditional aggregation kept as raw SQL for readability
+  const row = client.prepare(`
     SELECT
       SUM(CASE WHEN status='scheduled' THEN 1 ELSE 0 END) AS scheduled,
       SUM(CASE WHEN status='pending'   THEN 1 ELSE 0 END) AS pending,
       SUM(CASE WHEN status='running'   THEN 1 ELSE 0 END) AS running,
       SUM(CASE WHEN status='done'      THEN 1 ELSE 0 END) AS done,
-      SUM(CASE WHEN status='failed'    THEN 1 ELSE 0 END) AS failed
-    FROM tasks WHERE status != 'cancelled'
-  `).get() as { scheduled: number; pending: number; running: number; done: number; failed: number }
-  const total  = (db.prepare('SELECT COUNT(*) AS n FROM tasks').get() as { n: number }).n
-  const skills = (db.prepare('SELECT COUNT(*) AS n FROM skills').get() as { n: number }).n
-  return { ...row, total, skills }
+      SUM(CASE WHEN status='failed'    THEN 1 ELSE 0 END) AS failed,
+      COUNT(*)                                             AS total
+    FROM tasks
+  `).get() as { scheduled: number; pending: number; running: number; done: number; failed: number; total: number }
+  return row
 }

@@ -1,10 +1,12 @@
 import Fastify from 'fastify'
 import fastifyStatic from '@fastify/static'
+import fastifySwagger from '@fastify/swagger'
+import fastifySwaggerUi from '@fastify/swagger-ui'
 import chokidar from 'chokidar'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { homedir } from 'os'
-import { createWriteStream, readdirSync, readFileSync, statSync, existsSync } from 'fs'
+import { createWriteStream, readFileSync, existsSync } from 'fs'
 
 import * as db from './db.js'
 import * as scheduler from './scheduler.js'
@@ -23,10 +25,83 @@ const app = Fastify({
   disableRequestLogging: true,
 })
 
+// ── OpenAPI ────────────────────────────────────────────────────────────────────
+
+await app.register(fastifySwagger, {
+  openapi: {
+    openapi: '3.0.3',
+    info: {
+      title: 'Restwalker API',
+      description: 'Background Claude task queue with usage-gate scheduling',
+      version: '1.0.0',
+    },
+    tags: [
+      { name: 'health',     description: 'Health and status' },
+      { name: 'usage',      description: 'Claude usage monitoring and sync' },
+      { name: 'settings',   description: 'Daemon configuration' },
+      { name: 'providers',  description: 'Agent provider management' },
+      { name: 'queue',      description: 'Task queue' },
+      { name: 'discovery',  description: 'Models and projects' },
+    ],
+  },
+})
+
+await app.register(fastifySwaggerUi, {
+  routePrefix: '/docs',
+  uiConfig: { docExpansion: 'list', deepLinking: true },
+})
+
+// ── Static ─────────────────────────────────────────────────────────────────────
+
 await app.register(fastifyStatic, {
   root: join(__dirname, '..'),
   serve: false,
 })
+
+// ── Reusable schemas ───────────────────────────────────────────────────────────
+
+const S = {
+  provider: {
+    type: 'object',
+    properties: {
+      id:           { type: 'integer' },
+      name:         { type: 'string' },
+      command:      { type: 'string' },
+      args_template:{ type: 'string' },
+      is_default:   { type: 'integer' },
+      created_at:   { type: 'string', format: 'date-time' },
+    },
+  },
+  task: {
+    type: 'object',
+    properties: {
+      id:           { type: 'integer' },
+      description:  { type: 'string' },
+      cwd:          { type: 'string' },
+      model:        { type: 'string' },
+      provider_id:  { type: 'integer', nullable: true },
+      schedule:     { type: 'string', enum: ['once','hourly','daily','weekly','monthly'] },
+      next_run_at:  { type: 'string', nullable: true },
+      status:       { type: 'string', enum: ['scheduled','pending','running','done','failed','cancelled'] },
+      result:       { type: 'string', nullable: true },
+      session_id:   { type: 'string', nullable: true },
+      session_path: { type: 'string', nullable: true },
+      tool_calls:   { type: 'integer' },
+      tokens_used:  { type: 'integer' },
+      created_at:   { type: 'string', format: 'date-time' },
+      started_at:   { type: 'string', nullable: true },
+      finished_at:  { type: 'string', nullable: true },
+    },
+  },
+  ok: {
+    type: 'object',
+    properties: { ok: { type: 'boolean' } },
+  },
+  error: {
+    type: 'object',
+    properties: { error: { type: 'string' } },
+  },
+} as const
 
 // ── Sync helper ────────────────────────────────────────────────────────────────
 
@@ -59,13 +134,29 @@ function startPoller(): void {
   }, intervalMs)
 }
 
-// ── Routes ─────────────────────────────────────────────────────────────────────
+// ── Health ─────────────────────────────────────────────────────────────────────
 
-app.get('/healthz', async () => ({ ok: true }))
+app.get('/healthz', {
+  schema: {
+    tags: ['health'],
+    summary: 'Health check',
+    response: { 200: { type: 'object', properties: { ok: { type: 'boolean' } } } },
+  },
+}, async () => ({ ok: true }))
 
 app.get('/', async (_req, reply) => reply.sendFile('index.html'))
 
-app.post('/sync', async () => {
+// ── Usage ──────────────────────────────────────────────────────────────────────
+
+app.post('/sync', {
+  schema: {
+    tags: ['usage'],
+    summary: 'Force a usage cache refresh',
+    response: {
+      200: { type: 'object', properties: { ok: { type: 'boolean' }, stale: { type: 'boolean' } } },
+    },
+  },
+}, async () => {
   const cfg    = db.getSettings()
   const staleS = parseFloat(cfg.CACHE_STALE_MIN) * 60
   const usage  = await scheduler.readUsage({ cacheStaleS: staleS, forceRefresh: true })
@@ -76,7 +167,22 @@ app.post('/sync', async () => {
   return { ok: true, stale: usage?.stale ?? true }
 })
 
-app.get('/can-run', async (req) => {
+app.get('/can-run', {
+  schema: {
+    tags: ['usage'],
+    summary: 'Check whether the gate is open for a project',
+    querystring: {
+      type: 'object',
+      properties: { project: { type: 'string', default: 'default' } },
+    },
+    response: {
+      200: {
+        type: 'object',
+        properties: { ok: { type: 'boolean' }, reason: { type: 'string' }, provider: { type: 'string', nullable: true } },
+      },
+    },
+  },
+}, async (req) => {
   const project = (req.query as Record<string, string>).project ?? 'default'
   const cfg     = db.getSettings()
   const staleS  = parseFloat(cfg.CACHE_STALE_MIN) * 60
@@ -86,7 +192,48 @@ app.get('/can-run', async (req) => {
   return result
 })
 
-app.get('/status', async () => {
+app.get('/status', {
+  schema: {
+    tags: ['usage'],
+    summary: 'Full daemon status including usage, window, and thresholds',
+    response: {
+      200: {
+        type: 'object',
+        properties: {
+          window:         { type: 'string', enum: ['coding', 'idle'] },
+          next_idle_in_s: { type: 'number', nullable: true },
+          ok:             { type: 'boolean' },
+          provider:       { type: 'string', nullable: true },
+          reason:         { type: 'string' },
+          usage: {
+            type: 'object',
+            properties: {
+              five_hour_pct:    { type: 'number', nullable: true },
+              weekly_pct:       { type: 'number', nullable: true },
+              weekly_resets_at: { type: 'string', nullable: true },
+              cache_age_s:      { type: 'number', nullable: true },
+              stale:            { type: 'boolean' },
+              source:           { type: 'string', nullable: true },
+            },
+          },
+          thresholds: {
+            type: 'object',
+            properties: {
+              coding_start_h:       { type: 'number' },
+              coding_end_h:         { type: 'number' },
+              timezone:             { type: 'string' },
+              five_hour_pause_pct:  { type: 'number' },
+              weekly_reserve_pct:   { type: 'number' },
+              weekly_hard_stop_pct: { type: 'number' },
+              cache_stale_min:      { type: 'number' },
+              poll_interval_min:    { type: 'number' },
+            },
+          },
+        },
+      },
+    },
+  },
+}, async () => {
   const cfg    = db.getSettings()
   const staleS = parseFloat(cfg.CACHE_STALE_MIN) * 60
   const now    = new Date()
@@ -126,14 +273,68 @@ app.get('/status', async () => {
   }
 })
 
-app.get('/history', async (req) => {
+app.get('/history', {
+  schema: {
+    tags: ['usage'],
+    summary: 'Usage history bucketed into 15-minute intervals',
+    querystring: {
+      type: 'object',
+      properties: { hours: { type: 'integer', default: 48, minimum: 1, maximum: 720 } },
+    },
+    response: {
+      200: {
+        type: 'object',
+        properties: {
+          history: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                bucket:        { type: 'string', format: 'date-time' },
+                five_hour_pct: { type: 'number' },
+                weekly_pct:    { type: 'number' },
+                samples:       { type: 'integer' },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+}, async (req) => {
   const hours = parseInt((req.query as Record<string, string>).hours ?? '48')
   return { history: db.usageHistory(hours) }
 })
 
-app.get('/settings', async () => db.getSettings())
+// ── Settings ───────────────────────────────────────────────────────────────────
 
-app.post('/settings', async (req, reply) => {
+app.get('/settings', {
+  schema: {
+    tags: ['settings'],
+    summary: 'Get all settings',
+    response: {
+      200: {
+        type: 'object',
+        additionalProperties: { type: 'string' },
+      },
+    },
+  },
+}, async () => db.getSettings())
+
+app.post('/settings', {
+  schema: {
+    tags: ['settings'],
+    summary: 'Update one or more settings',
+    body: {
+      type: 'object',
+      additionalProperties: { type: 'string' },
+    },
+    response: {
+      200: { type: 'object', properties: { ok: { type: 'boolean' }, settings: { type: 'object', additionalProperties: { type: 'string' } } } },
+      422: S.error,
+    },
+  },
+}, async (req, reply) => {
   try {
     db.updateSettings(req.body as Partial<Settings>)
     return { ok: true, settings: db.getSettings() }
@@ -144,16 +345,55 @@ app.post('/settings', async (req, reply) => {
 
 // ── Providers ──────────────────────────────────────────────────────────────────
 
-app.get('/providers', async () => ({ providers: db.getProviders() }))
+app.get('/providers', {
+  schema: {
+    tags: ['providers'],
+    summary: 'List all agent providers',
+    response: { 200: { type: 'object', properties: { providers: { type: 'array', items: S.provider } } } },
+  },
+}, async () => ({ providers: db.getProviders() }))
 
-app.post('/providers', async (req, reply) => {
+app.post('/providers', {
+  schema: {
+    tags: ['providers'],
+    summary: 'Add an agent provider',
+    body: {
+      type: 'object',
+      required: ['name', 'command'],
+      properties: {
+        name:         { type: 'string' },
+        command:      { type: 'string' },
+        args_template:{ type: 'string', description: 'JSON string array with {{task}}, {{model}}, {{cwd}} placeholders' },
+      },
+    },
+    response: {
+      200: { type: 'object', properties: { ok: { type: 'boolean' }, provider: S.provider } },
+      400: S.error,
+    },
+  },
+}, async (req, reply) => {
   const { name, command, args_template } = req.body as { name?: string; command?: string; args_template?: string }
   if (!name?.trim() || !command?.trim()) return reply.code(400).send({ error: 'name and command required' })
   const provider = db.addProvider(name.trim(), command.trim(), args_template?.trim() || '["{{task}}"]')
   return { ok: true, provider }
 })
 
-app.put('/providers/:id', async (req, reply) => {
+app.put('/providers/:id', {
+  schema: {
+    tags: ['providers'],
+    summary: 'Update an agent provider',
+    params: { type: 'object', required: ['id'], properties: { id: { type: 'integer' } } },
+    body: {
+      type: 'object',
+      properties: {
+        name:         { type: 'string' },
+        command:      { type: 'string' },
+        args_template:{ type: 'string' },
+      },
+    },
+    response: { 200: S.ok, 404: S.error },
+  },
+}, async (req, reply) => {
   const id = parseInt((req.params as { id: string }).id)
   if (!db.getProvider(id)) return reply.code(404).send({ error: 'not found' })
   const { name, command, args_template } = req.body as Partial<db.Provider>
@@ -161,14 +401,28 @@ app.put('/providers/:id', async (req, reply) => {
   return { ok: true }
 })
 
-app.post('/providers/:id/default', async (req, reply) => {
+app.post('/providers/:id/default', {
+  schema: {
+    tags: ['providers'],
+    summary: 'Set a provider as the default',
+    params: { type: 'object', required: ['id'], properties: { id: { type: 'integer' } } },
+    response: { 200: S.ok, 404: S.error },
+  },
+}, async (req, reply) => {
   const id = parseInt((req.params as { id: string }).id)
   if (!db.getProvider(id)) return reply.code(404).send({ error: 'not found' })
   db.setDefaultProvider(id)
   return { ok: true }
 })
 
-app.delete('/providers/:id', async (req, reply) => {
+app.delete('/providers/:id', {
+  schema: {
+    tags: ['providers'],
+    summary: 'Delete an agent provider',
+    params: { type: 'object', required: ['id'], properties: { id: { type: 'integer' } } },
+    response: { 200: S.ok, 404: S.error, 409: S.error },
+  },
+}, async (req, reply) => {
   const id = parseInt((req.params as { id: string }).id)
   if (!db.getProvider(id)) return reply.code(404).send({ error: 'not found' })
   if (db.getProviders().length <= 1) return reply.code(409).send({ error: 'cannot delete last provider' })
@@ -176,13 +430,35 @@ app.delete('/providers/:id', async (req, reply) => {
   return { ok: true }
 })
 
-// ── Projects ───────────────────────────────────────────────────────────────────
+// ── Discovery ──────────────────────────────────────────────────────────────────
 
-app.get('/projects', async () => {
+app.get('/projects', {
+  schema: {
+    tags: ['discovery'],
+    summary: 'List Claude Code projects from history, sorted by recency',
+    response: {
+      200: {
+        type: 'object',
+        properties: {
+          projects: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                cwd:         { type: 'string' },
+                last_active: { type: 'string', format: 'date-time' },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+}, async () => {
   const historyFile = join(homedir(), '.claude', 'history.jsonl')
   if (!existsSync(historyFile)) return { projects: [] }
 
-  const seen = new Map<string, number>()  // cwd → max timestamp
+  const seen = new Map<string, number>()
   try {
     const lines = readFileSync(historyFile, 'utf8').split('\n').filter(Boolean)
     for (const line of lines) {
@@ -201,9 +477,25 @@ app.get('/projects', async () => {
   }
 })
 
-// ── Models ─────────────────────────────────────────────────────────────────────
-
-app.get('/models', async (_req, reply) => {
+app.get('/models', {
+  schema: {
+    tags: ['discovery'],
+    summary: 'List available Anthropic models from the live API',
+    response: {
+      200: {
+        type: 'object',
+        properties: {
+          models: {
+            type: 'array',
+            items: { type: 'object', properties: { id: { type: 'string' }, name: { type: 'string' } } },
+          },
+        },
+      },
+      502: S.error,
+      503: S.error,
+    },
+  },
+}, async (_req, reply) => {
   const token = scheduler.readKeychainToken()
   if (!token) return reply.code(503).send({ error: 'no auth token' })
   try {
@@ -218,24 +510,90 @@ app.get('/models', async (_req, reply) => {
   }
 })
 
-// ── Queue routes ───────────────────────────────────────────────────────────────
+// ── Queue ──────────────────────────────────────────────────────────────────────
 
-app.get('/queue/stats', async () => db.queueStats())
+app.get('/queue/stats', {
+  schema: {
+    tags: ['queue'],
+    summary: 'Task counts by status',
+    response: {
+      200: {
+        type: 'object',
+        properties: {
+          scheduled: { type: 'integer' },
+          pending:   { type: 'integer' },
+          running:   { type: 'integer' },
+          done:      { type: 'integer' },
+          failed:    { type: 'integer' },
+          total:     { type: 'integer' },
+        },
+      },
+    },
+  },
+}, async () => db.queueStats())
 
-app.get('/queue', async (req) => {
+app.get('/queue', {
+  schema: {
+    tags: ['queue'],
+    summary: 'List tasks with pagination',
+    querystring: {
+      type: 'object',
+      properties: {
+        limit:  { type: 'integer', default: 25, minimum: 1, maximum: 100 },
+        offset: { type: 'integer', default: 0,  minimum: 0 },
+      },
+    },
+    response: {
+      200: {
+        type: 'object',
+        properties: {
+          tasks: { type: 'array', items: S.task },
+          total: { type: 'integer' },
+        },
+      },
+    },
+  },
+}, async (req) => {
   const q      = req.query as Record<string, string>
   const limit  = Math.min(parseInt(q.limit  ?? '25'), 100)
   const offset = Math.max(parseInt(q.offset ?? '0'),  0)
   return { tasks: db.getTasks(limit, offset), total: db.getTaskCount() }
 })
 
-app.get('/queue/:id', async (req, reply) => {
+app.get('/queue/:id', {
+  schema: {
+    tags: ['queue'],
+    summary: 'Get a single task',
+    params: { type: 'object', required: ['id'], properties: { id: { type: 'integer' } } },
+    response: { 200: S.task, 404: S.error },
+  },
+}, async (req, reply) => {
   const task = db.getTask(parseInt((req.params as { id: string }).id))
   if (!task) return reply.code(404).send({ error: 'not found' })
   return task
 })
 
-app.post('/queue', async (req, reply) => {
+app.post('/queue', {
+  schema: {
+    tags: ['queue'],
+    summary: 'Enqueue a new task',
+    body: {
+      type: 'object',
+      required: ['description'],
+      properties: {
+        description: { type: 'string' },
+        cwd:         { type: 'string' },
+        model:       { type: 'string' },
+        provider_id: { type: 'integer' },
+        schedule:    { type: 'string', enum: ['once','hourly','daily','weekly','monthly'], default: 'once' },
+      },
+    },
+    response: {
+      200: { type: 'object', properties: { ok: { type: 'boolean' }, task: S.task } },
+      400: S.error,
+    },
+  },
+}, async (req, reply) => {
   const { description, cwd, model, provider_id, schedule } =
     req.body as { description?: string; cwd?: string; model?: string; provider_id?: number; schedule?: db.TaskSchedule }
   if (!description?.trim()) return reply.code(400).send({ error: 'description required' })
@@ -245,7 +603,14 @@ app.post('/queue', async (req, reply) => {
   return { ok: true, task }
 })
 
-app.delete('/queue/:id', async (req, reply) => {
+app.delete('/queue/:id', {
+  schema: {
+    tags: ['queue'],
+    summary: 'Cancel a pending or scheduled task',
+    params: { type: 'object', required: ['id'], properties: { id: { type: 'integer' } } },
+    response: { 200: S.ok, 404: S.error, 409: S.error },
+  },
+}, async (req, reply) => {
   const id   = parseInt((req.params as { id: string }).id)
   const task = db.getTask(id)
   if (!task) return reply.code(404).send({ error: 'not found' })
@@ -254,14 +619,62 @@ app.delete('/queue/:id', async (req, reply) => {
   return { ok: true }
 })
 
-app.post('/queue/:id/force-run', async (req, reply) => {
+app.post('/queue/:id/force-run', {
+  schema: {
+    tags: ['queue'],
+    summary: 'Force-run a pending task immediately, bypassing the usage gate',
+    params: { type: 'object', required: ['id'], properties: { id: { type: 'integer' } } },
+    response: {
+      200: S.ok,
+      404: S.error,
+      409: { type: 'object', properties: { ok: { type: 'boolean' }, error: { type: 'string' } } },
+    },
+  },
+}, async (req, reply) => {
   const id = parseInt((req.params as { id: string }).id)
   const task = db.getTask(id)
   if (!task) return reply.code(404).send({ error: 'not found' })
   return forceRunTask(id, msg => app.log.info(msg))
 })
 
-app.get('/queue/:id/session', async (req, reply) => {
+app.get('/queue/:id/session', {
+  schema: {
+    tags: ['queue'],
+    summary: 'Get the parsed Claude Code session transcript for a task',
+    params: { type: 'object', required: ['id'], properties: { id: { type: 'integer' } } },
+    response: {
+      200: {
+        type: 'object',
+        properties: {
+          turns: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                role:       { type: 'string', enum: ['user', 'assistant'] },
+                text:       { type: 'string', nullable: true },
+                thinking:   { type: 'string', nullable: true },
+                tool_calls: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      name:   { type: 'string' },
+                      input:  { type: 'object', additionalProperties: true },
+                      result: { type: 'string', nullable: true },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      404: S.error,
+      500: S.error,
+    },
+  },
+}, async (req, reply) => {
   const task = db.getTask(parseInt((req.params as { id: string }).id))
   if (!task) return reply.code(404).send({ error: 'not found' })
   if (!task.session_path) return reply.code(404).send({ error: 'no session recorded' })
@@ -270,7 +683,6 @@ app.get('/queue/:id/session', async (req, reply) => {
   try {
     const lines = readFileSync(task.session_path, 'utf8').split('\n').filter(Boolean)
 
-    // Pass 1: collect tool results keyed by tool_use_id
     const toolResults = new Map<string, string>()
     for (const line of lines) {
       const e = JSON.parse(line)
@@ -285,7 +697,6 @@ app.get('/queue/:id/session', async (req, reply) => {
       }
     }
 
-    // Pass 2: build turns
     interface Turn {
       role: 'user' | 'assistant'
       text: string | null
@@ -331,11 +742,6 @@ app.get('/queue/:id/session', async (req, reply) => {
   } catch (e) {
     return reply.code(500).send({ error: (e as Error).message })
   }
-})
-
-app.get('/queue/skills', async (req) => {
-  const limit = parseInt((req.query as Record<string, string>).limit ?? '20')
-  return { skills: db.getSkills(limit) }
 })
 
 // ── Start ──────────────────────────────────────────────────────────────────────

@@ -163,9 +163,9 @@
       <div class="dot" id="status-dot"></div>
       <span id="status-label">—</span>
     </div>
-    <div style="display:flex;gap:4px;margin-left:8px">
+    <div style="display:flex;gap:6px;margin-left:8px;align-items:center">
       <button id="tab-dash" onclick="switchTab('dash')" style="background:var(--accent);color:white;border:none;border-radius:6px;padding:5px 10px;cursor:pointer;font-family:inherit;font-size:12px">Dashboard</button>
-      <button id="tab-queue" onclick="switchTab('queue')" style="background:var(--card);color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;font-family:inherit;font-size:12px">Queue</button>
+      <button id="tab-queue" onclick="switchTab('queue')" style="background:var(--blue);color:white;border:none;border-radius:6px;padding:6px 14px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;letter-spacing:0.01em">⚡ Queue</button>
     </div>
     <button class="gear-btn" title="Settings" onclick="openSettings()">⚙</button>
   </div>
@@ -265,10 +265,6 @@
     <div id="q-pagination"></div>
   </div>
 
-  <div class="section">
-    <h2>Auto-generated skills <span id="q-skill-count" style="font-size:10px;font-weight:400;letter-spacing:0;color:var(--muted)"></span></h2>
-    <div id="q-skill-list"><div style="color:var(--muted);text-align:center;padding:20px;font-style:italic">No skills yet — written after sessions with 5+ tool calls</div></div>
-  </div>
 </main>
 
 <footer>auto-refreshes every 60s · syncs on open</footer>
@@ -883,8 +879,8 @@ function switchTab(tab) {
     ? 'background:var(--accent);color:white;border:none;border-radius:6px;padding:5px 10px;cursor:pointer;font-family:inherit;font-size:12px'
     : 'background:var(--card);color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;font-family:inherit;font-size:12px'
   document.getElementById('tab-queue').style.cssText = tab === 'queue'
-    ? 'background:var(--accent);color:white;border:none;border-radius:6px;padding:5px 10px;cursor:pointer;font-family:inherit;font-size:12px'
-    : 'background:var(--card);color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;font-family:inherit;font-size:12px'
+    ? 'background:var(--blue);color:white;border:none;border-radius:6px;padding:6px 14px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;letter-spacing:0.01em;opacity:1'
+    : 'background:var(--blue);color:white;border:none;border-radius:6px;padding:6px 14px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;letter-spacing:0.01em;opacity:0.65'
   if (tab === 'queue') { loadProviders(); loadModels(); loadProjects(); refreshQueue() }
 }
 
@@ -914,10 +910,9 @@ function qBadge(status) {
 }
 
 async function refreshQueue() {
-  const [statsRes, tasksRes, skillsRes] = await Promise.all([
+  const [statsRes, tasksRes] = await Promise.all([
     fetch('/queue/stats').then(r => r.json()).catch(() => ({})),
     fetch(`/queue?limit=${qPageSize}&offset=${qPage * qPageSize}`).then(r => r.json()).catch(() => ({ tasks: [], total: 0 })),
-    fetch('/queue/skills').then(r => r.json()).catch(() => ({ skills: [] })),
   ])
 
   document.getElementById('q-stat-scheduled').textContent = `${statsRes.scheduled ?? 0} scheduled`
@@ -932,21 +927,6 @@ async function refreshQueue() {
 
   renderTaskList(tasks)
   renderPagination(total, totalPages)
-
-  const skills = skillsRes.skills ?? []
-  document.getElementById('q-skill-count').textContent = skills.length ? `(${skills.length})` : ''
-  const sEl = document.getElementById('q-skill-list')
-  if (!skills.length) {
-    sEl.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;font-style:italic">No skills yet — written after sessions with 5+ tool calls</div>'
-  } else {
-    sEl.innerHTML = skills.map(s => `
-      <div style="padding:10px 0;border-bottom:1px solid var(--border)">
-        <div style="color:var(--accent);font-weight:600;font-size:13px">⚡ ${s.name}</div>
-        <div style="color:var(--muted);font-size:11px;margin-top:2px">${s.description}</div>
-        <div style="color:var(--muted);font-size:10px;margin-top:2px">${s.tool_calls} tool calls · task #${s.task_id} · ${qTimeSince(s.created_at)}</div>
-      </div>
-    `).join('')
-  }
 }
 
 function renderTaskList(tasks) {
@@ -972,7 +952,6 @@ function renderTaskList(tasks) {
           <div style="color:var(--muted);font-size:11px;margin-top:3px;padding-left:18px">
             ${t.cwd ? `<span>${t.cwd}</span> · ` : ''}${(() => { const p = _providers.find(x => x.id === t.provider_id) || _providers.find(x => x.is_default); return p ? `<span style="color:#94a3b8">${escHtml(p.name)}</span> · ` : '' })()}${t.model ? `<span style="color:#818cf8">${t.model.replace('claude-','')}</span> · ` : ''}added ${qTimeSince(t.created_at)}${t.finished_at ? ` · finished ${qTimeSince(t.finished_at)}` : ''}${t.tool_calls ? ` · ${t.tool_calls} tools` : ''}${t.tokens_used ? ` · ${t.tokens_used.toLocaleString()} tok` : ''}
           </div>
-          ${t.skill_path ? `<div style="font-size:10px;color:#818cf8;background:rgba(99,102,241,.1);border-radius:4px;padding:2px 6px;margin-top:4px;margin-left:18px;display:inline-block">⚡ ${t.skill_path.split('/').pop()}</div>` : ''}
         </div>
         <div style="display:flex;gap:6px;align-items:center" onclick="event.stopPropagation()">
           ${qBadge(t.status)}

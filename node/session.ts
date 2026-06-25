@@ -1,7 +1,7 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'fs'
+import { readFileSync, existsSync, readdirSync, statSync } from 'fs'
 import { join, basename } from 'path'
 import { homedir } from 'os'
-import { SKILLS_DIR, CLAUDE_PROJECTS_DIR } from './db.js'
+import { CLAUDE_PROJECTS_DIR } from './db.js'
 
 export interface SessionAnalysis {
   sessionId:    string
@@ -116,61 +116,4 @@ export function analyzeSession(sessionPath: string): SessionAnalysis {
     keySteps:     deduped,
     outcome:      lastAssistantText.slice(0, 400).trim(),
   }
-}
-
-export function skillify(analysis: SessionAnalysis, taskId: number): string | null {
-  if (analysis.toolCalls < 5) return null
-
-  const slug = analysis.userRequest
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 40)
-
-  const name = `auto-${slug}`
-  const skillDir = join(SKILLS_DIR, name)
-  if (!existsSync(skillDir)) mkdirSync(skillDir, { recursive: true })
-  const skillPath = join(skillDir, 'SKILL.md')
-
-  const allFiles = [...analysis.filesWritten, ...analysis.filesEdited]
-  const fileList = allFiles.length ? allFiles.map(f => `- ${f}`).join('\n') : '- (no files written)'
-
-  const content = `---
-name: ${name}
-description: ${analysis.userRequest.slice(0, 100).replace(/\n/g, ' ')}
-metadata:
-  type: auto
-  task_id: ${taskId}
-  source_session: ${analysis.sessionId}
-  tool_calls: ${analysis.toolCalls}
-  tokens_used: ${analysis.tokensUsed}
----
-
-# ${name}
-
-Auto-generated from a Claude Code session with ${analysis.toolCalls} tool calls.
-
-## Task
-${analysis.userRequest}
-
-## Key steps
-${analysis.keySteps.map((s, i) => `${i + 1}. ${s}`).join('\n')}
-
-## Files touched
-${fileList}
-
-## Outcome
-${analysis.outcome || '(see session transcript)'}
-
-## Replay
-\`\`\`bash
-claude -p "${analysis.userRequest.replace(/"/g, '\\"')}" --permission-mode auto
-\`\`\`
-
-## Session
-\`${analysis.sessionPath}\`
-`
-
-  writeFileSync(skillPath, content, 'utf8')
-  return skillPath
 }
