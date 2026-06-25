@@ -142,6 +142,23 @@ app.post('/settings', async (req, reply) => {
   }
 })
 
+// ── Models ─────────────────────────────────────────────────────────────────────
+
+app.get('/models', async (_req, reply) => {
+  const token = scheduler.readKeychainToken()
+  if (!token) return reply.code(503).send({ error: 'no auth token' })
+  try {
+    const res  = await fetch('https://api.anthropic.com/v1/models', {
+      headers: { 'Authorization': `Bearer ${token}`, 'anthropic-version': '2023-06-01' },
+      signal: AbortSignal.timeout(8000),
+    })
+    const data = await res.json() as { data: { id: string; display_name: string }[] }
+    return { models: data.data.map(m => ({ id: m.id, name: m.display_name })) }
+  } catch (e) {
+    return reply.code(502).send({ error: (e as Error).message })
+  }
+})
+
 // ── Queue routes ───────────────────────────────────────────────────────────────
 
 app.get('/queue/stats', async () => db.queueStats())
