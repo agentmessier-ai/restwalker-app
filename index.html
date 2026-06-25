@@ -229,6 +229,15 @@
       <span style="color:var(--muted);white-space:nowrap;font-size:12px">cwd:</span>
       <input type="text" id="q-cwd" list="q-cwd-list" style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-family:inherit;font-size:13px" placeholder="project directory (or pick from list)">
       <datalist id="q-cwd-list"></datalist>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+      <select id="q-schedule" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-family:inherit;font-size:12px;cursor:pointer">
+        <option value="once">Once</option>
+        <option value="hourly">Hourly</option>
+        <option value="daily">Daily</option>
+        <option value="weekly">Weekly</option>
+        <option value="monthly">Monthly</option>
+      </select>
       <select id="q-provider" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-family:inherit;font-size:12px;cursor:pointer">
         <option value="">default provider</option>
       </select>
@@ -243,6 +252,7 @@
     <h2 style="display:flex;justify-content:space-between;align-items:center">
       Task queue
       <span style="font-size:10px;font-weight:400;letter-spacing:0">
+        <span id="q-stat-scheduled" style="color:#a78bfa">0 scheduled</span> ·
         <span id="q-stat-pending" style="color:#f59e0b">0 pending</span> ·
         <span id="q-stat-running" style="color:#3b82f6">0 running</span> ·
         <span id="q-stat-done" style="color:#22c55e">0 done</span> ·
@@ -858,6 +868,17 @@ function switchTab(tab) {
   if (tab === 'queue') { loadProviders(); loadModels(); loadProjects(); refreshQueue() }
 }
 
+const SCHEDULE_LABELS = { once:'', hourly:'⏰ hourly', daily:'📅 daily', weekly:'🗓 weekly', monthly:'📆 monthly' }
+
+function scheduleChip(t) {
+  if (!t.schedule || t.schedule === 'once') return ''
+  const label = SCHEDULE_LABELS[t.schedule] || t.schedule
+  if (t.status === 'scheduled' && t.next_run_at) {
+    return `<span style="font-size:10px;background:rgba(167,139,250,.15);color:#a78bfa;padding:1px 6px;border-radius:3px;margin-left:4px">${label} · runs ${qTimeSince(t.next_run_at)}</span>`
+  }
+  return `<span style="font-size:10px;background:rgba(167,139,250,.15);color:#a78bfa;padding:1px 6px;border-radius:3px;margin-left:4px">${label}</span>`
+}
+
 function qTimeSince(iso) {
   if (!iso) return ''
   const d = (Date.now() - new Date(iso).getTime()) / 1000
@@ -867,7 +888,7 @@ function qTimeSince(iso) {
 }
 
 function qBadge(status) {
-  const colors = { pending:'#f59e0b', running:'#3b82f6', done:'#22c55e', failed:'#ef4444' }
+  const colors = { scheduled:'#a78bfa', pending:'#f59e0b', running:'#3b82f6', done:'#22c55e', failed:'#ef4444' }
   const c = colors[status] || '#64748b'
   return `<span style="display:inline-block;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:600;text-transform:uppercase;background:${c}22;color:${c}">${status}</span>`
 }
@@ -879,10 +900,11 @@ async function refreshQueue() {
     fetch('/queue/skills').then(r => r.json()).catch(() => ({ skills: [] })),
   ])
 
-  document.getElementById('q-stat-pending').textContent = `${statsRes.pending ?? 0} pending`
-  document.getElementById('q-stat-running').textContent = `${statsRes.running ?? 0} running`
-  document.getElementById('q-stat-done').textContent    = `${statsRes.done ?? 0} done`
-  document.getElementById('q-stat-failed').textContent  = `${statsRes.failed ?? 0} failed`
+  document.getElementById('q-stat-scheduled').textContent = `${statsRes.scheduled ?? 0} scheduled`
+  document.getElementById('q-stat-pending').textContent   = `${statsRes.pending ?? 0} pending`
+  document.getElementById('q-stat-running').textContent   = `${statsRes.running ?? 0} running`
+  document.getElementById('q-stat-done').textContent      = `${statsRes.done ?? 0} done`
+  document.getElementById('q-stat-failed').textContent    = `${statsRes.failed ?? 0} failed`
 
   const tasks = tasksRes.tasks ?? []
   const total = tasksRes.total ?? 0
@@ -922,9 +944,10 @@ function renderTaskList(tasks) {
       <div style="display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:start;padding:10px 0;cursor:pointer" onclick="qToggleExpand(${t.id}, event)">
         <span style="color:var(--muted);font-size:11px;min-width:28px;padding-top:2px">#${t.id}</span>
         <div>
-          <div style="font-size:13px;line-height:1.5;display:flex;align-items:center;gap:6px">
+          <div style="font-size:13px;line-height:1.5;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
             <span style="color:var(--muted);font-size:11px;user-select:none">${expandIcon}</span>
             <span>${escHtml(t.description)}</span>
+            ${scheduleChip(t)}
           </div>
           <div style="color:var(--muted);font-size:11px;margin-top:3px;padding-left:18px">
             ${t.cwd ? `<span>${t.cwd}</span> · ` : ''}${(() => { const p = _providers.find(x => x.id === t.provider_id) || _providers.find(x => x.is_default); return p ? `<span style="color:#94a3b8">${escHtml(p.name)}</span> · ` : '' })()}${t.model ? `<span style="color:#818cf8">${t.model.replace('claude-','')}</span> · ` : ''}added ${qTimeSince(t.created_at)}${t.finished_at ? ` · finished ${qTimeSince(t.finished_at)}` : ''}${t.tool_calls ? ` · ${t.tool_calls} tools` : ''}${t.tokens_used ? ` · ${t.tokens_used.toLocaleString()} tok` : ''}
@@ -934,7 +957,7 @@ function renderTaskList(tasks) {
         <div style="display:flex;gap:6px;align-items:center" onclick="event.stopPropagation()">
           ${qBadge(t.status)}
           ${t.status === 'pending' ? `<button id="force-${t.id}" onclick="queueForceRun(${t.id})" style="background:#f59e0b;color:#0f1117;border:none;border-radius:4px;padding:3px 7px;cursor:pointer;font-size:11px;font-weight:600">▶</button>` : ''}
-          ${t.status === 'pending' ? `<button onclick="queueDeleteTask(${t.id})" style="background:#ef4444;color:white;border:none;border-radius:4px;padding:3px 7px;cursor:pointer;font-size:11px">✕</button>` : ''}
+          ${(t.status === 'pending' || t.status === 'scheduled') ? `<button onclick="queueDeleteTask(${t.id})" style="background:#ef4444;color:white;border:none;border-radius:4px;padding:3px 7px;cursor:pointer;font-size:11px">✕</button>` : ''}
         </div>
       </div>
       <div id="task-expand-${t.id}" style="display:${expanded ? 'block' : 'none'};padding:0 0 12px 38px">
@@ -1067,11 +1090,12 @@ async function queueAddTask() {
   const model      = document.getElementById('q-model').value
   const providerRaw = document.getElementById('q-provider').value
   const provider_id = providerRaw ? parseInt(providerRaw) : undefined
+  const schedule    = document.getElementById('q-schedule').value || 'once'
   if (!desc) return alert('Description required')
   const r = await fetch('/queue', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ description: desc, cwd, model, provider_id }),
+    body: JSON.stringify({ description: desc, cwd, model, provider_id, schedule }),
   }).then(r => r.json())
   if (r.ok) {
     document.getElementById('q-desc').value = ''

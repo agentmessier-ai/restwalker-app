@@ -124,6 +124,9 @@ async function processTask(input: QueuePayload): Promise<void> {
         tokens_used:  tokensUsed,
       })
 
+      const next = db.createNextRun(task)
+      if (next) console.log(`[queue] next run of #${task.id} scheduled at ${next.next_run_at}`)
+
       resolve()
     })
 

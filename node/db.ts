@@ -63,7 +63,8 @@ export interface Provider {
   created_at:    string
 }
 
-export type TaskStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancelled'
+export type TaskStatus   = 'scheduled' | 'pending' | 'running' | 'done' | 'failed' | 'cancelled'
+export type TaskSchedule = 'once' | 'hourly' | 'daily' | 'weekly' | 'monthly'
 
 export interface Task {
   id:           number
@@ -71,6 +72,8 @@ export interface Task {
   cwd:          string
   model:        string
   provider_id:  number | null
+  schedule:     TaskSchedule
+  next_run_at:  string | null
   status:       TaskStatus
   result:       string | null
   session_id:   string | null
@@ -122,6 +125,9 @@ export function migrate(): void {
       description  TEXT    NOT NULL,
       cwd          TEXT    NOT NULL DEFAULT '',
       model        TEXT    NOT NULL DEFAULT 'claude-sonnet-4-6',
+      provider_id  INTEGER REFERENCES providers(id),
+      schedule     TEXT    NOT NULL DEFAULT 'once',
+      next_run_at  TEXT,
       status       TEXT    NOT NULL DEFAULT 'pending',
       result       TEXT,
       session_id   TEXT,
@@ -168,6 +174,12 @@ export function migrate(): void {
   }
   if (cols.length && !cols.includes('provider_id')) {
     db.exec('ALTER TABLE tasks ADD COLUMN provider_id INTEGER REFERENCES providers(id)')
+  }
+  if (cols.length && !cols.includes('schedule')) {
+    db.exec("ALTER TABLE tasks ADD COLUMN schedule TEXT NOT NULL DEFAULT 'once'")
+  }
+  if (cols.length && !cols.includes('next_run_at')) {
+    db.exec('ALTER TABLE tasks ADD COLUMN next_run_at TEXT')
   }
 
   // seed default provider if none exist
@@ -278,10 +290,39 @@ export function deleteProvider(id: number): void {
 
 const DEFAULT_MODEL = 'claude-sonnet-4-6'
 
-export function addTask(description: string, cwd = '', model = DEFAULT_MODEL, providerId?: number | null): Task {
+function computeNextRun(schedule: TaskSchedule): string {
+  const d = new Date()
+  if (schedule === 'hourly')  return new Date(d.getTime() + 3_600_000).toISOString()
+  if (schedule === 'daily')   return new Date(d.getTime() + 86_400_000).toISOString()
+  if (schedule === 'weekly')  return new Date(d.getTime() + 7 * 86_400_000).toISOString()
+  if (schedule === 'monthly') { d.setMonth(d.getMonth() + 1); return d.toISOString() }
+  return d.toISOString()
+}
+
+export function addTask(
+  description: string, cwd = '', model = DEFAULT_MODEL,
+  providerId?: number | null, schedule: TaskSchedule = 'once',
+): Task {
   return db.prepare(
-    'INSERT INTO tasks (description, cwd, model, provider_id) VALUES (?, ?, ?, ?) RETURNING *'
-  ).get(description, cwd || process.env.HOME || '', model || DEFAULT_MODEL, providerId ?? null) as Task
+    'INSERT INTO tasks (description, cwd, model, provider_id, schedule) VALUES (?, ?, ?, ?, ?) RETURNING *'
+  ).get(description, cwd || process.env.HOME || '', model || DEFAULT_MODEL, providerId ?? null, schedule) as Task
+}
+
+export function createNextRun(task: Task): Task | null {
+  if (!task.schedule || task.schedule === 'once') return null
+  return db.prepare(
+    "INSERT INTO tasks (description,cwd,model,provider_id,schedule,status,next_run_at) VALUES (?,?,?,?,?,'scheduled',?) RETURNING *"
+  ).get(task.description, task.cwd, task.model, task.provider_id ?? null, task.schedule, computeNextRun(task.schedule)) as Task
+}
+
+export function getScheduledDueTasks(): Task[] {
+  return db.prepare(
+    "SELECT * FROM tasks WHERE status='scheduled' AND next_run_at <= strftime('%Y-%m-%dT%H:%M:%SZ','now')"
+  ).all() as Task[]
+}
+
+export function setTaskPending(id: number): void {
+  db.prepare("UPDATE tasks SET status='pending', next_run_at=NULL WHERE id=?").run(id)
 }
 
 export function setTaskRunning(id: number): void {
@@ -331,7 +372,7 @@ export function getTask(id: number): Task | null {
 }
 
 export function cancelTask(id: number): void {
-  db.prepare("UPDATE tasks SET status='cancelled' WHERE id=? AND status='pending'").run(id)
+  db.prepare("UPDATE tasks SET status='cancelled' WHERE id=? AND status IN ('pending','scheduled')").run(id)
 }
 
 // ── Queue: skills ──────────────────────────────────────────────────────────────
@@ -346,15 +387,16 @@ export function getSkills(limit = 20): Skill[] {
   return db.prepare('SELECT * FROM skills ORDER BY id DESC LIMIT ?').all(limit) as Skill[]
 }
 
-export function queueStats(): { pending: number; running: number; done: number; failed: number; skills: number } {
+export function queueStats(): { scheduled: number; pending: number; running: number; done: number; failed: number; skills: number } {
   const row = db.prepare(`
     SELECT
+      SUM(CASE WHEN status='scheduled' THEN 1 ELSE 0 END) AS scheduled,
       SUM(CASE WHEN status='pending'   THEN 1 ELSE 0 END) AS pending,
       SUM(CASE WHEN status='running'   THEN 1 ELSE 0 END) AS running,
       SUM(CASE WHEN status='done'      THEN 1 ELSE 0 END) AS done,
       SUM(CASE WHEN status='failed'    THEN 1 ELSE 0 END) AS failed
     FROM tasks WHERE status != 'cancelled'
-  `).get() as { pending: number; running: number; done: number; failed: number }
+  `).get() as { scheduled: number; pending: number; running: number; done: number; failed: number }
   const total  = (db.prepare('SELECT COUNT(*) AS n FROM tasks').get() as { n: number }).n
   const skills = (db.prepare('SELECT COUNT(*) AS n FROM skills').get() as { n: number }).n
   return { ...row, total, skills }

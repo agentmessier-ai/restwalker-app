@@ -262,11 +262,12 @@ app.get('/queue/:id', async (req, reply) => {
 })
 
 app.post('/queue', async (req, reply) => {
-  const { description, cwd, model, provider_id } = req.body as { description?: string; cwd?: string; model?: string; provider_id?: number }
+  const { description, cwd, model, provider_id, schedule } =
+    req.body as { description?: string; cwd?: string; model?: string; provider_id?: number; schedule?: db.TaskSchedule }
   if (!description?.trim()) return reply.code(400).send({ error: 'description required' })
-  const task = db.addTask(description.trim(), cwd?.trim(), model?.trim(), provider_id)
+  const task = db.addTask(description.trim(), cwd?.trim(), model?.trim(), provider_id, schedule || 'once')
   enqueueTask(task)
-  app.log.info(`[queue] added #${task.id}: ${description.slice(0, 80)}`)
+  app.log.info(`[queue] added #${task.id} (${task.schedule}): ${description.slice(0, 80)}`)
   return { ok: true, task }
 })
 
@@ -274,7 +275,7 @@ app.delete('/queue/:id', async (req, reply) => {
   const id   = parseInt((req.params as { id: string }).id)
   const task = db.getTask(id)
   if (!task) return reply.code(404).send({ error: 'not found' })
-  if (task.status !== 'pending') return reply.code(409).send({ error: 'can only cancel pending tasks' })
+  if (task.status !== 'pending' && task.status !== 'scheduled') return reply.code(409).send({ error: 'can only cancel pending or scheduled tasks' })
   db.cancelTask(id)
   return { ok: true }
 })
@@ -365,9 +366,21 @@ app.get('/queue/skills', async (req) => {
 
 // ── Start ──────────────────────────────────────────────────────────────────────
 
+function startScheduleChecker(): void {
+  setInterval(() => {
+    const due = db.getScheduledDueTasks()
+    for (const task of due) {
+      db.setTaskPending(task.id)
+      enqueueTask(task)
+      app.log.info(`[schedule] enqueued #${task.id} (${task.schedule})`)
+    }
+  }, 60_000)
+}
+
 db.migrate()
 await app.listen({ host: '0.0.0.0', port: PORT })
 app.log.info(`[restwalker] running on http://localhost:${PORT}`)
 app.log.info(`[restwalker] watching ${scheduler.USAGE_CACHE}`)
 startPoller()
+startScheduleChecker()
 setQueue(startQueue(msg => app.log.info(msg)))
