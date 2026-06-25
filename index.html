@@ -211,10 +211,10 @@
       <div class="setting-row">
         <div>
           <div class="setting-label">Timezone</div>
-          <div class="setting-hint">IANA timezone for coding window (e.g. America/New_York)</div>
+          <div class="setting-hint">Coding window hours are interpreted in this timezone</div>
         </div>
         <div class="setting-input-wrap">
-          <input class="setting-input" type="text" style="width:14rem" id="s-TIMEZONE" placeholder="America/Los_Angeles">
+          <select class="setting-input" id="s-TIMEZONE" style="width:14rem"></select>
         </div>
       </div>
       <div class="setting-row">
@@ -524,6 +524,41 @@ function fmtHour12(h) {
   return h < 12 ? `${h}:00 AM` : `${h-12}:00 PM`;
 }
 
+function buildTimezoneSelect(currentTz) {
+  const sel = document.getElementById('s-TIMEZONE')
+  if (!sel) return
+
+  // Get all IANA timezones from the browser, group by region
+  const all = Intl.supportedValuesOf('timeZone')
+  const groups = {}
+  for (const tz of all) {
+    const region = tz.includes('/') ? tz.split('/')[0] : 'Other'
+    if (!groups[region]) groups[region] = []
+    groups[region].push(tz)
+  }
+
+  sel.innerHTML = ''
+  for (const region of Object.keys(groups).sort()) {
+    const og = document.createElement('optgroup')
+    og.label = region
+    for (const tz of groups[region]) {
+      const opt = document.createElement('option')
+      opt.value = tz
+      // Show offset + city: "America/New_York (EST, UTC-5)"
+      try {
+        const abbr = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short' })
+          .formatToParts(new Date()).find(p => p.type === 'timeZoneName')?.value ?? ''
+        opt.textContent = `${tz.split('/').slice(1).join('/').replace(/_/g,' ')} (${abbr})`
+      } catch {
+        opt.textContent = tz
+      }
+      if (tz === currentTz) opt.selected = true
+      og.appendChild(opt)
+    }
+    sel.appendChild(og)
+  }
+}
+
 function buildHourSelects() {
   ['s-CODING_START_H','s-CODING_END_H'].forEach(id => {
     const sel = document.getElementById(id);
@@ -543,6 +578,7 @@ async function openSettings() {
   buildHourSelects();
   const res = await fetch('/settings');
   const cfg = await res.json();
+  buildTimezoneSelect(cfg.TIMEZONE ?? 'America/Los_Angeles');
   for (const k of SETTING_KEYS) {
     const el = document.getElementById('s-'+k);
     if (el) el.value = cfg[k] ?? '';
