@@ -5,7 +5,19 @@ PLIST_SRC="$(cd "$(dirname "$0")" && pwd)/com.restwalker.plist"
 PLIST_DST="$HOME/Library/LaunchAgents/com.restwalker.plist"
 DATA_DIR="$HOME/.restwalker"
 INSTALL_DIR="$(cd "$(dirname "$0")" && pwd)"
-PYTHON="${PYTHON:-$(which python3)}"
+# Find a Python 3.10+ — prefer explicit PYTHON env var, then python3, then versioned binaries
+if [ -n "$PYTHON" ]; then
+  : # use as-is
+elif python3 -c "import sys; assert sys.version_info >= (3,10)" 2>/dev/null; then
+  PYTHON="$(which python3)"
+else
+  for candidate in python3.12 python3.11 python3.10; do
+    if command -v "$candidate" &>/dev/null && "$candidate" -c "import sys; assert sys.version_info >= (3,10)" 2>/dev/null; then
+      PYTHON="$(which $candidate)"; break
+    fi
+  done
+fi
+PYTHON="${PYTHON:-python3}"
 
 echo "==> restwalker installer"
 echo "    install dir : $INSTALL_DIR"
@@ -14,8 +26,8 @@ echo "    data dir    : $DATA_DIR"
 echo ""
 
 # ── 1. Python check ───────────────────────────────────────────────────────────
-if ! "$PYTHON" -c "import sys; assert sys.version_info >= (3,11)" 2>/dev/null; then
-  echo "ERROR: Python 3.11+ required. Set PYTHON=/path/to/python3 to override."
+if ! "$PYTHON" -c "import sys; assert sys.version_info >= (3,10)" 2>/dev/null; then
+  echo "ERROR: Python 3.10+ required. Set PYTHON=/path/to/python3 to override."
   exit 1
 fi
 
