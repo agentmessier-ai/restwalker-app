@@ -114,4 +114,4 @@ tail -f ~/.restwalker/restwalker.log
 
 ## Name
 
-Inspired by 梦游 (mèngyóu) — sleepwalking. While you rest, it walks through your Claude Max quota so nothing goes to waste.
+Restwalker — while you rest, it walks through your Claude Max quota so nothing goes to waste.
