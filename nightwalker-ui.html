@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nightwalker</title>
+<style>
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --border: #2a2d3e;
+    --text: #e2e8f0; --muted: #64748b; --accent: #7c3aed;
+    --green: #10b981; --yellow: #f59e0b; --red: #ef4444; --blue: #3b82f6;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px; min-height: 100vh; }
+
+  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; }
+  header h1 { font-size: 16px; font-weight: 600; color: var(--accent); }
+  header h1 span { color: var(--muted); font-weight: 400; margin-left: 8px; font-size: 12px; }
+
+  .stats { display: flex; gap: 16px; }
+  .stat { text-align: center; }
+  .stat-val { font-size: 18px; font-weight: 700; }
+  .stat-lbl { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
+  .stat-val.pending { color: var(--yellow); }
+  .stat-val.running { color: var(--blue); }
+  .stat-val.done    { color: var(--green); }
+  .stat-val.failed  { color: var(--red); }
+  .stat-val.skills  { color: var(--accent); }
+
+  main { max-width: 900px; margin: 0 auto; padding: 20px; }
+
+  .add-form { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 20px; }
+  .add-form h2 { font-size: 13px; color: var(--muted); margin-bottom: 12px; text-transform: uppercase; letter-spacing: .05em; }
+  .form-row { display: flex; gap: 8px; }
+  textarea { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 8px 10px; font-family: inherit; font-size: 13px; resize: vertical; min-height: 60px; }
+  input[type=text] { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 8px 10px; font-family: inherit; font-size: 13px; width: 100%; }
+  .form-meta { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
+  .form-meta label { color: var(--muted); white-space: nowrap; }
+  button { background: var(--accent); color: white; border: none; border-radius: 6px; padding: 8px 16px; cursor: pointer; font-family: inherit; font-size: 13px; white-space: nowrap; }
+  button:hover { opacity: .85; }
+  button.danger { background: var(--red); }
+
+  .section-title { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 20px 0 8px; }
+
+  .task-list { display: flex; flex-direction: column; gap: 8px; }
+  .task { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: start; }
+  .task-id { color: var(--muted); font-size: 11px; min-width: 32px; }
+  .task-desc { font-size: 13px; line-height: 1.5; }
+  .task-meta { color: var(--muted); font-size: 11px; margin-top: 4px; }
+  .task-actions { display: flex; gap: 6px; align-items: center; }
+  .badge { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+  .badge.pending { background: rgba(245,158,11,.15); color: var(--yellow); }
+  .badge.running { background: rgba(59,130,246,.15); color: var(--blue); }
+  .badge.done    { background: rgba(16,185,129,.15); color: var(--green); }
+  .badge.failed  { background: rgba(239,68,68,.15);  color: var(--red); }
+  .task-result { font-size: 11px; color: var(--muted); margin-top: 6px; white-space: pre-wrap; max-height: 60px; overflow: hidden; cursor: pointer; }
+  .task-result.expanded { max-height: none; }
+  .skill-chip { font-size: 10px; color: var(--accent); background: rgba(124,58,237,.1); border-radius: 4px; padding: 2px 6px; margin-top: 4px; display: inline-block; }
+
+  .skill-list { display: flex; flex-direction: column; gap: 6px; }
+  .skill { background: var(--surface); border: 1px solid rgba(124,58,237,.3); border-radius: 8px; padding: 10px 14px; }
+  .skill-name { color: var(--accent); font-weight: 600; }
+  .skill-desc { color: var(--muted); font-size: 11px; margin-top: 3px; }
+  .skill-meta { color: var(--border); font-size: 10px; margin-top: 4px; }
+
+  .restwalker-status { display: flex; align-items: center; gap: 8px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .dot.green { background: var(--green); }
+  .dot.red   { background: var(--red); }
+  .dot.gray  { background: var(--muted); }
+  .status-text { font-size: 11px; color: var(--muted); }
+
+  .empty { color: var(--muted); text-align: center; padding: 24px; font-style: italic; }
+</style>
+</head>
+<body>
+<header>
+  <h1>nightwalker <span>while you sleep, it works</span></h1>
+  <div style="display:flex;gap:24px;align-items:center">
+    <div class="restwalker-status">
+      <div class="dot gray" id="rw-dot"></div>
+      <span class="status-text" id="rw-status">checking restwalker…</span>
+    </div>
+    <div class="stats" id="stats-row">
+      <div class="stat"><div class="stat-val pending" id="s-pending">–</div><div class="stat-lbl">Pending</div></div>
+      <div class="stat"><div class="stat-val running" id="s-running">–</div><div class="stat-lbl">Running</div></div>
+      <div class="stat"><div class="stat-val done"    id="s-done">–</div><div class="stat-lbl">Done</div></div>
+      <div class="stat"><div class="stat-val failed"  id="s-failed">–</div><div class="stat-lbl">Failed</div></div>
+      <div class="stat"><div class="stat-val skills"  id="s-skills">–</div><div class="stat-lbl">Skills</div></div>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="add-form">
+    <h2>Add task to queue</h2>
+    <textarea id="desc" placeholder="Describe what you want Claude to do overnight…
+e.g. 'Add integration tests for the ledger service in ~/dev/agentnet'"></textarea>
+    <div class="form-meta">
+      <label>cwd:</label>
+      <input type="text" id="cwd" placeholder="~/dev/agentnet (leave blank for home dir)">
+      <button onclick="addTask()">Add to queue</button>
+    </div>
+  </div>
+
+  <div class="section-title">Task queue</div>
+  <div class="task-list" id="task-list"><div class="empty">No tasks yet</div></div>
+
+  <div class="section-title" style="margin-top:28px">Auto-generated skills</div>
+  <div class="skill-list" id="skill-list"><div class="empty">No skills yet — skills are written after sessions with 5+ tool calls</div></div>
+</main>
+
+<script>
+const BASE = 'http://localhost:47291'
+const RW   = 'http://localhost:47290'
+
+function timeSince(iso) {
+  if (!iso) return ''
+  const d = (Date.now() - new Date(iso).getTime()) / 1000
+  if (d < 60) return `${Math.round(d)}s ago`
+  if (d < 3600) return `${Math.round(d/60)}m ago`
+  return `${Math.round(d/3600)}h ago`
+}
+
+function badge(status) {
+  return `<span class="badge ${status}">${status}</span>`
+}
+
+async function loadStats() {
+  const s = await fetch(`${BASE}/stats`).then(r => r.json()).catch(() => null)
+  if (!s) return
+  document.getElementById('s-pending').textContent = s.pending ?? 0
+  document.getElementById('s-running').textContent = s.running ?? 0
+  document.getElementById('s-done').textContent    = s.done    ?? 0
+  document.getElementById('s-failed').textContent  = s.failed  ?? 0
+  document.getElementById('s-skills').textContent  = s.skills  ?? 0
+}
+
+async function loadRestwalker() {
+  try {
+    const r = await fetch(`${RW}/can-run?project=nightwalker`).then(r => r.json())
+    const dot = document.getElementById('rw-dot')
+    const txt = document.getElementById('rw-status')
+    dot.className = `dot ${r.ok ? 'green' : 'red'}`
+    txt.textContent = r.ok ? 'gate open — will run' : `gate closed: ${r.reason}`
+  } catch {
+    document.getElementById('rw-dot').className = 'dot gray'
+    document.getElementById('rw-status').textContent = 'restwalker unreachable'
+  }
+}
+
+async function loadTasks() {
+  const data = await fetch(`${BASE}/tasks`).then(r => r.json()).catch(() => ({ tasks: [] }))
+  const el = document.getElementById('task-list')
+  if (!data.tasks?.length) { el.innerHTML = '<div class="empty">No tasks yet</div>'; return }
+  el.innerHTML = data.tasks.map(t => `
+    <div class="task">
+      <div class="task-id">#${t.id}</div>
+      <div>
+        <div class="task-desc">${t.description}</div>
+        <div class="task-meta">
+          ${t.cwd ? `📁 ${t.cwd} · ` : ''}
+          added ${timeSince(t.created_at)}
+          ${t.started_at ? ` · started ${timeSince(t.started_at)}` : ''}
+          ${t.finished_at ? ` · finished ${timeSince(t.finished_at)}` : ''}
+          ${t.tool_calls ? ` · ${t.tool_calls} tool calls` : ''}
+          ${t.tokens_used ? ` · ${t.tokens_used.toLocaleString()} tokens` : ''}
+        </div>
+        ${t.result ? `<div class="task-result" onclick="this.classList.toggle('expanded')">${t.result}</div>` : ''}
+        ${t.skill_path ? `<div class="skill-chip">⚡ skill: ${t.skill_path.split('/').pop()}</div>` : ''}
+      </div>
+      <div class="task-actions">
+        ${badge(t.status)}
+        ${t.status === 'pending' ? `<button class="danger" onclick="deleteTask(${t.id})" style="padding:4px 8px;font-size:11px">✕</button>` : ''}
+      </div>
+    </div>
+  `).join('')
+}
+
+async function loadSkills() {
+  const data = await fetch(`${BASE}/skills`).then(r => r.json()).catch(() => ({ skills: [] }))
+  const el = document.getElementById('skill-list')
+  if (!data.skills?.length) { el.innerHTML = '<div class="empty">No skills yet — skills are written after sessions with 5+ tool calls</div>'; return }
+  el.innerHTML = data.skills.map(s => `
+    <div class="skill">
+      <div class="skill-name">⚡ ${s.name}</div>
+      <div class="skill-desc">${s.description}</div>
+      <div class="skill-meta">${s.tool_calls} tool calls · task #${s.task_id} · ${timeSince(s.created_at)} · ${s.path}</div>
+    </div>
+  `).join('')
+}
+
+async function addTask() {
+  const desc = document.getElementById('desc').value.trim()
+  const cwd  = document.getElementById('cwd').value.trim()
+  if (!desc) return alert('Description required')
+  const r = await fetch(`${BASE}/tasks`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ description: desc, cwd }),
+  }).then(r => r.json())
+  if (r.ok) {
+    document.getElementById('desc').value = ''
+    document.getElementById('cwd').value  = ''
+    refresh()
+  } else {
+    alert(r.error)
+  }
+}
+
+async function deleteTask(id) {
+  await fetch(`${BASE}/tasks/${id}`, { method: 'DELETE' })
+  refresh()
+}
+
+function refresh() {
+  loadStats()
+  loadTasks()
+  loadSkills()
+  loadRestwalker()
+}
+
+refresh()
+setInterval(refresh, 15000)
+</script>
+</body>
+</html>

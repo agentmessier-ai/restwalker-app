@@ -109,11 +109,49 @@ cat > "$PLIST_DST" <<PLIST
 </plist>
 PLIST
 
-# ── Load ──────────────────────────────────────────────────────────────────────
+# ── Load restwalker ────────────────────────────────────────────────────────────
 launchctl unload "$PLIST_DST" 2>/dev/null || true
 launchctl load "$PLIST_DST"
 
+# ── nightwalker LaunchAgent ────────────────────────────────────────────────────
+echo "==> Installing nightwalker LaunchAgent..."
+
+mkdir -p "$HOME/.nightwalker"
+NIGHTWALKER_PLIST="$HOME/Library/LaunchAgents/com.nightwalker.plist"
+
+cat > "$NIGHTWALKER_PLIST" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.nightwalker</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$NODE</string>
+    <string>$TSX</string>
+    <string>$INSTALL_DIR/nightwalker/app.ts</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>$INSTALL_DIR/nightwalker</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>$HOME/.nightwalker/nightwalker.log</string>
+  <key>StandardErrorPath</key>
+  <string>$HOME/.nightwalker/nightwalker.log</string>
+</dict>
+</plist>
+PLIST
+
+launchctl unload "$NIGHTWALKER_PLIST" 2>/dev/null || true
+launchctl load "$NIGHTWALKER_PLIST"
+
 echo ""
-echo "✓ restwalker ($RUNTIME) installed and running on http://localhost:47290"
-echo "  Logs: tail -f $DATA_DIR/restwalker.log"
+echo "✓ restwalker ($RUNTIME) → http://localhost:47290  |  logs: tail -f $DATA_DIR/restwalker.log"
+echo "✓ nightwalker           → http://localhost:47291  |  logs: tail -f $HOME/.nightwalker/nightwalker.log"
+echo ""
+echo "  Add overnight tasks: http://localhost:47291"
 echo "  To uninstall: ./uninstall.sh"
