@@ -83,6 +83,9 @@ mkdir -p "$DATA_DIR"
 # ── LaunchAgent plist ─────────────────────────────────────────────────────────
 echo "==> Installing LaunchAgent..."
 
+# Resolve claude binary path
+CLAUDE_BIN=$(which claude 2>/dev/null || echo "claude")
+
 # Build plist with correct ProgramArguments, paths, and log locations
 cat > "$PLIST_DST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -101,6 +104,11 @@ cat > "$PLIST_DST" <<PLIST
   <true/>
   <key>KeepAlive</key>
   <true/>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>CLAUDE_BIN</key>
+    <string>$CLAUDE_BIN</string>
+  </dict>
   <key>StandardOutPath</key>
   <string>$DATA_DIR/restwalker.log</string>
   <key>StandardErrorPath</key>

@@ -162,8 +162,10 @@ export async function forceRunTask(taskId: number, log: (msg: string) => void): 
   log(`[queue] force-running task #${task.id}`)
   try {
     await processTask({ id: String(task.id), taskId: task.id, description: task.description, cwd: task.cwd })
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: (e as Error).message }
   } finally {
     _forceRunning = false
   }
-  return { ok: true }
 }
