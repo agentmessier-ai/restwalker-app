@@ -1,7 +1,7 @@
 {
   "name": "restwalker",
   "version": "1.0.0",
-  "description": "While you rest, it walks — Claude Max plan router for background AI jobs",
+  "description": "While you rest, it walks — idle-time Claude task runner",
   "type": "module",
   "main": "app.ts",
   "scripts": {
