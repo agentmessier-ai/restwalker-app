@@ -115,6 +115,26 @@
   select.setting-input { text-align: left; cursor: pointer; }
   .setting-unit { font-size: 12px; color: var(--muted); white-space: nowrap; }
 
+  /* ── Range sliders ── */
+  .slider-wrap { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  .slider-val  { font-size: 13px; font-family: var(--mono); color: var(--text); min-width: 36px; text-align: right; }
+  input[type=range] {
+    -webkit-appearance: none; appearance: none;
+    width: 160px; height: 4px; border-radius: 2px;
+    background: var(--border); outline: none; cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--blue); border: none; cursor: pointer;
+    transition: transform .1s;
+  }
+  input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.25); }
+  input[type=range]::-moz-range-thumb {
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--blue); border: none; cursor: pointer;
+  }
+
   .modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border); }
   .btn { padding: 8px 18px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; }
   .btn-secondary { background: var(--bg); border: 1px solid var(--border); color: var(--text); }
@@ -283,9 +303,9 @@
           <div class="setting-label">5h pause at</div>
           <div class="setting-hint">Pause when 5h rolling window hits this %</div>
         </div>
-        <div class="setting-input-wrap">
-          <input class="setting-input" type="number" min="1" max="100" id="s-FIVE_HOUR_PAUSE_PCT">
-          <span class="setting-unit">%</span>
+        <div class="slider-wrap">
+          <input type="range" min="1" max="100" id="s-FIVE_HOUR_PAUSE_PCT" oninput="document.getElementById('v-FIVE_HOUR_PAUSE_PCT').textContent=this.value+'%'">
+          <span class="slider-val" id="v-FIVE_HOUR_PAUSE_PCT">75%</span>
         </div>
       </div>
       <div class="setting-row">
@@ -293,9 +313,9 @@
           <div class="setting-label">Weekly reserve</div>
           <div class="setting-hint">Keep this % of weekly budget for coding</div>
         </div>
-        <div class="setting-input-wrap">
-          <input class="setting-input" type="number" min="0" max="99" id="s-WEEKLY_RESERVE_PCT">
-          <span class="setting-unit">%</span>
+        <div class="slider-wrap">
+          <input type="range" min="0" max="99" id="s-WEEKLY_RESERVE_PCT" oninput="document.getElementById('v-WEEKLY_RESERVE_PCT').textContent=this.value+'%'">
+          <span class="slider-val" id="v-WEEKLY_RESERVE_PCT">35%</span>
         </div>
       </div>
       <div class="setting-row">
@@ -303,9 +323,9 @@
           <div class="setting-label">Weekly hard stop</div>
           <div class="setting-hint">Full stop at this weekly %</div>
         </div>
-        <div class="setting-input-wrap">
-          <input class="setting-input" type="number" min="1" max="100" id="s-WEEKLY_HARD_STOP_PCT">
-          <span class="setting-unit">%</span>
+        <div class="slider-wrap">
+          <input type="range" min="1" max="100" id="s-WEEKLY_HARD_STOP_PCT" oninput="document.getElementById('v-WEEKLY_HARD_STOP_PCT').textContent=this.value+'%'">
+          <span class="slider-val" id="v-WEEKLY_HARD_STOP_PCT">90%</span>
         </div>
       </div>
     </div>
@@ -317,9 +337,9 @@
           <div class="setting-label">Poll interval</div>
           <div class="setting-hint">How often to read the Claude Code cache</div>
         </div>
-        <div class="setting-input-wrap">
-          <input class="setting-input" type="number" min="1" max="60" id="s-POLL_INTERVAL_MIN">
-          <span class="setting-unit">min</span>
+        <div class="slider-wrap">
+          <input type="range" min="1" max="60" id="s-POLL_INTERVAL_MIN" oninput="document.getElementById('v-POLL_INTERVAL_MIN').textContent=this.value+'m'">
+          <span class="slider-val" id="v-POLL_INTERVAL_MIN">5m</span>
         </div>
       </div>
       <div class="setting-row">
@@ -327,9 +347,9 @@
           <div class="setting-label">Cache stale after</div>
           <div class="setting-hint">Treat cache as stale if older than this</div>
         </div>
-        <div class="setting-input-wrap">
-          <input class="setting-input" type="number" min="1" max="1440" id="s-CACHE_STALE_MIN">
-          <span class="setting-unit">min</span>
+        <div class="slider-wrap">
+          <input type="range" min="5" max="120" id="s-CACHE_STALE_MIN" oninput="document.getElementById('v-CACHE_STALE_MIN').textContent=this.value+'m'">
+          <span class="slider-val" id="v-CACHE_STALE_MIN">30m</span>
         </div>
       </div>
     </div>
@@ -555,6 +575,16 @@ function renderPredictions(status, history) {
     </div>`).join('');
 }
 
+// ── Slider track fill ─────────────────────────────────────────────────────────
+
+function updateSliderTrack(el) {
+  if (el.type !== 'range') return
+  const pct = ((el.value - el.min) / (el.max - el.min)) * 100
+  el.style.background = `linear-gradient(to right, var(--blue) ${pct}%, var(--border) ${pct}%)`
+}
+
+document.addEventListener('input', e => { if (e.target.type === 'range') updateSliderTrack(e.target) })
+
 // ── Settings modal ────────────────────────────────────────────────────────────
 
 function fmtHour12(h) {
@@ -618,9 +648,14 @@ async function openSettings() {
   const res = await fetch('/settings');
   const cfg = await res.json();
   buildTimezoneSelect(cfg.TIMEZONE ?? 'America/Los_Angeles');
+  const SLIDER_KEYS = { FIVE_HOUR_PAUSE_PCT:'%', WEEKLY_RESERVE_PCT:'%', WEEKLY_HARD_STOP_PCT:'%', POLL_INTERVAL_MIN:'m', CACHE_STALE_MIN:'m' }
   for (const k of SETTING_KEYS) {
     const el = document.getElementById('s-'+k);
-    if (el) el.value = cfg[k] ?? '';
+    if (!el) continue;
+    el.value = cfg[k] ?? '';
+    const vEl = document.getElementById('v-'+k);
+    if (vEl && SLIDER_KEYS[k]) vEl.textContent = (cfg[k] ?? '') + SLIDER_KEYS[k];
+    updateSliderTrack(el);
   }
   document.getElementById('save-status').style.display = 'none';
   document.getElementById('modal-overlay').classList.add('open');
