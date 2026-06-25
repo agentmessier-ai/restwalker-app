@@ -1,7 +1,10 @@
-"""cc-provider: Claude Max plan router — runs on Mac, serves the local network."""
+"""cc-provider: Claude Max plan router — runs on Mac as a background service."""
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -14,13 +17,55 @@ import scheduler
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="cc-provider", version="1.0.0")
+POLL_INTERVAL_S = int(os.environ.get("POLL_INTERVAL_S", "300"))  # 5 min
 
 
-@app.on_event("startup")
-def startup():
+# ── Background poller ─────────────────────────────────────────────────────────
+
+async def _usage_poller():
+    """Poll ~/.claude/.usage_cache.json every POLL_INTERVAL_S seconds.
+
+    Writes a snapshot to SQLite only when the cache is fresh (an active Claude
+    Code session is running). Stale reads are skipped — no point recording zeros.
+    """
+    logger.info(f"[poller] started — polling every {POLL_INTERVAL_S}s")
+    while True:
+        try:
+            usage = scheduler.read_usage()
+            if usage and not usage.get("stale"):
+                db.record_snapshot(
+                    usage["five_hour_pct"],
+                    usage["weekly_pct"],
+                    usage.get("weekly_resets_at"),
+                )
+                logger.debug(
+                    f"[poller] recorded 5h={usage['five_hour_pct']:.1f}% "
+                    f"weekly={usage['weekly_pct']:.1f}%"
+                )
+            else:
+                age = usage.get("age_s", -1) if usage else -1
+                logger.debug(f"[poller] cache stale (age={age:.0f}s) — skipping")
+        except Exception as e:
+            logger.warning(f"[poller] error: {e}")
+        await asyncio.sleep(POLL_INTERVAL_S)
+
+
+# ── App lifespan ──────────────────────────────────────────────────────────────
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     db.migrate()
-    logger.info("[cc-provider] started — reading %s", scheduler.USAGE_CACHE)
+    logger.info(f"[cc-provider] started — watching {scheduler.USAGE_CACHE}")
+    task = asyncio.create_task(_usage_poller())
+    yield
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+
+app = FastAPI(title="cc-provider", version="1.0.0", lifespan=lifespan)
 
 
 # ── Routing ───────────────────────────────────────────────────────────────────
@@ -33,13 +78,6 @@ def can_run(project: str = "default"):
     """
     usage = scheduler.read_usage()
     result = scheduler.can_run(usage)
-
-    if usage and not usage.get("stale"):
-        try:
-            db.record_snapshot(usage["five_hour_pct"], usage["weekly_pct"], usage.get("weekly_resets_at"))
-        except Exception as e:
-            logger.warning(f"snapshot write failed: {e}")
-
     logger.info(f"[can-run] project={project!r} ok={result['ok']} reason={result['reason']!r}")
     return result
 
