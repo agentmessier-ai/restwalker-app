@@ -1,4 +1,4 @@
-"""SQLite store for cc-provider: usage history + settings."""
+"""SQLite store for restwalker: usage history + settings."""
 from __future__ import annotations
 
 import sqlite3
@@ -7,8 +7,8 @@ from pathlib import Path
 import os
 
 DB_PATH = Path(os.environ.get(
-    "CC_PROVIDER_DB",
-    Path.home() / ".cc-provider" / "cc-provider.db",
+    "RESTWALKER_DB",
+    Path.home() / ".restwalker" / "restwalker.db",
 ))
 
 # Defaults — env vars win over these; DB settings win over env vars.

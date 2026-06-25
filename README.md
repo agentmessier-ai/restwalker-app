@@ -1,4 +1,4 @@
-# cc-provider
+# restwalker
 
 Mac background service that smartly gates Claude Max plan usage for background jobs.
 
@@ -37,22 +37,22 @@ When `ok=true`, the hub runs the job with `provider=max`. When `ok=false`, the h
 ### 1. Install dependencies
 
 ```bash
-cd ~/dev/cc-provider
+cd ~/dev/restwalker
 pip install -r requirements.txt
 ```
 
 ### 2. Install as LaunchAgent
 
 ```bash
-cp com.cc-provider.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.cc-provider.plist
+cp com.restwalker.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.restwalker.plist
 ```
 
 The plist uses `~/miniconda3/bin/python3`. Edit `ProgramArguments` if your Python path differs.
 
 ### 3. Wire up factory-research hub
 
-Set `CC_PROVIDER_URL=http://192.168.0.124:47290` in the hub's environment (already in `deploy/k3s/hub-deployment.yaml`).
+Set `RESTWALKER_URL=http://192.168.0.124:47290` in the hub's environment (already in `deploy/k3s/hub-deployment.yaml`).
 
 ## API
 
@@ -74,10 +74,10 @@ Set `CC_PROVIDER_URL=http://192.168.0.124:47290` in the hub's environment (alrea
 | `db.py` | SQLite: usage_snapshots + settings tables |
 | `index.html` | Dashboard UI (Chart.js, no build step) |
 | `requirements.txt` | Python dependencies |
-| `com.cc-provider.plist` | LaunchAgent template |
+| `com.restwalker.plist` | LaunchAgent template |
 
 ## Logs
 
 ```bash
-tail -f ~/.cc-provider/cc-provider.log
+tail -f ~/.restwalker/restwalker.log
 ```

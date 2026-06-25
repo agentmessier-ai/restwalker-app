@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.cc-provider</string>
+  <string>com.restwalker</string>
   <key>ProgramArguments</key>
   <array>
     <string>~/miniconda3/bin/python3</string>
@@ -16,14 +16,14 @@
     <string>47290</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>~/dev/cc-provider</string>
+  <string>~/dev/restwalker</string>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>~/.cc-provider/cc-provider.log</string>
+  <string>~/.restwalker/restwalker.log</string>
   <key>StandardErrorPath</key>
-  <string>~/.cc-provider/cc-provider.log</string>
+  <string>~/.restwalker/restwalker.log</string>
 </dict>
 </plist>

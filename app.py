@@ -1,4 +1,4 @@
-"""cc-provider: Claude Mac plan router — runs on Mac as a background service."""
+"""restwalker: Claude Mac plan router — runs on Mac as a background service."""
 from __future__ import annotations
 
 import asyncio
@@ -84,7 +84,7 @@ async def _background_watcher():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.migrate()
-    logger.info(f"[cc-provider] started — watching {scheduler.USAGE_CACHE}")
+    logger.info(f"[restwalker] started — watching {scheduler.USAGE_CACHE}")
     task = asyncio.create_task(_background_watcher())
     yield
     task.cancel()
@@ -94,7 +94,7 @@ async def lifespan(app: FastAPI):
         pass
 
 
-app = FastAPI(title="cc-provider", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="restwalker", version="1.0.0", lifespan=lifespan)
 
 
 # ── Sync ──────────────────────────────────────────────────────────────────────
