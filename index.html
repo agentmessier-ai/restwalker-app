@@ -206,7 +206,16 @@
     </div>
 
     <div class="settings-group">
-      <div class="settings-group-title">Schedule (PST)</div>
+      <div class="settings-group-title" id="sched-group-title">Schedule</div>
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Timezone</div>
+          <div class="setting-hint">IANA timezone for coding window (e.g. America/New_York)</div>
+        </div>
+        <div class="setting-input-wrap">
+          <input class="setting-input" type="text" style="width:14rem" id="s-TIMEZONE" placeholder="America/Los_Angeles">
+        </div>
+      </div>
       <div class="setting-row">
         <div>
           <div class="setting-label">Coding window start</div>
@@ -214,7 +223,7 @@
         </div>
         <div class="setting-input-wrap">
           <input class="setting-input" type="number" min="0" max="23" id="s-CODING_START_H">
-          <span class="setting-unit">h (PST)</span>
+          <span class="setting-unit" id="unit-start-h">h</span>
         </div>
       </div>
       <div class="setting-row">
@@ -224,7 +233,7 @@
         </div>
         <div class="setting-input-wrap">
           <input class="setting-input" type="number" min="0" max="23" id="s-CODING_END_H">
-          <span class="setting-unit">h (PST)</span>
+          <span class="setting-unit" id="unit-end-h">h</span>
         </div>
       </div>
     </div>
@@ -298,12 +307,21 @@
 <script>
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+let tz = 'America/Los_Angeles';  // updated from /status on every refresh
+
 function fmtPct(v) { return v == null ? '—' : Math.round(v) + '%'; }
 function fmtTs(iso) {
   if (!iso) return '—';
   return new Date(iso).toLocaleString('en-US', {
-    month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', timeZone:'America/Los_Angeles'
-  }) + ' PST';
+    month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', timeZone: tz
+  }) + ' ' + tzAbbr(tz);
+}
+function tzAbbr(tzName) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {timeZone: tzName, timeZoneName:'short'})
+      .formatToParts(new Date());
+    return parts.find(p => p.type === 'timeZoneName')?.value ?? tzName;
+  } catch { return tzName; }
 }
 function fmtHours(h) {
   if (h == null || !isFinite(h) || h < 0) return null;
@@ -317,8 +335,13 @@ function barColor(pct, warnAt, stopAt) {
   return 'green';
 }
 function isCodingHour(date, startH, endH) {
-  const pstH = ((date.getUTCHours() - 8 + 24) % 24);
-  return pstH >= startH || pstH < endH;
+  try {
+    const h = parseInt(new Intl.DateTimeFormat('en-US',{timeZone:tz,hour:'numeric',hour12:false}).format(date));
+    return h >= startH || h < endH;
+  } catch {
+    const pstH = ((date.getUTCHours() - 8 + 24) % 24);
+    return pstH >= startH || pstH < endH;
+  }
 }
 function slope(points) {
   const n = points.length;
@@ -373,13 +396,13 @@ function renderChart(fiveH, weekly, startMs, endMs, thr) {
           backgroundColor:'#1e293b', borderColor:'#334155', borderWidth:1,
           titleColor:'#94a3b8', bodyColor:'#e2e8f0',
           callbacks:{
-            title: items => new Date(items[0].parsed.x).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'America/Los_Angeles'})+' PST',
+            title: items => new Date(items[0].parsed.x).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',timeZone:tz})+' '+tzAbbr(tz),
             label: item => ['Coding window','5h pause','Weekly pause','Hard stop'].includes(item.dataset.label) ? null : ` ${item.dataset.label}: ${item.parsed.y?.toFixed(1)}%`,
           }
         }
       },
       scales:{
-        x:{ type:'linear', min:startMs, max:endMs, grid:{color:'rgba(255,255,255,0.04)'}, ticks:{color:'#64748b', maxTicksLimit:8, callback:v=>new Date(v).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',timeZone:'America/Los_Angeles'})} },
+        x:{ type:'linear', min:startMs, max:endMs, grid:{color:'rgba(255,255,255,0.04)'}, ticks:{color:'#64748b', maxTicksLimit:8, callback:v=>new Date(v).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',timeZone:tz})} },
         y:{ min:0, max:100, grid:{color:'rgba(255,255,255,0.04)'}, ticks:{color:'#64748b', callback:v=>v+'%'} },
       }
     }
@@ -447,10 +470,17 @@ function renderStatus(s) {
   } else if (s.usage?.weekly_resets_at) {
     const d = new Date(s.usage.weekly_resets_at);
     nextEl.textContent = d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
-    nextSub.textContent = d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',timeZone:'America/Los_Angeles'})+' PST · weekly reset';
+    nextSub.textContent = d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',timeZone:tz})+' '+tzAbbr(tz)+' · weekly reset';
   } else { nextEl.textContent='—'; nextSub.textContent=''; }
 
   currentThresholds = s.thresholds || {};
+  if (s.thresholds?.timezone) {
+    tz = s.thresholds.timezone;
+    const abbr = tzAbbr(tz);
+    document.getElementById('sched-group-title').textContent = `Schedule (${abbr})`;
+    document.getElementById('unit-start-h').textContent = `h (${abbr})`;
+    document.getElementById('unit-end-h').textContent   = `h (${abbr})`;
+  }
 }
 
 // ── Predictions ───────────────────────────────────────────────────────────────
@@ -474,7 +504,7 @@ function renderPredictions(status, history) {
   const hw   = hoursUntil(weekly, 100-tw,   sWk);
   const hws  = hoursUntil(weekly, ts,       sWk);
 
-  const resetStr = resets ? new Date(resets).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'America/Los_Angeles'})+' PST' : '—';
+  const resetStr = resets ? new Date(resets).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',timeZone:tz})+' '+tzAbbr(tz) : '—';
 
   const items = [
     { icon:'⏱', title:`5h hits pause (${t5}%)`,       value: h5===0?'Already paused':h5?'in ~'+fmtHours(h5):`${Math.round(fiveH??0)}% — healthy`,  cls: h5===0?'red':h5&&h5<2?'amber':'green' },
@@ -491,7 +521,7 @@ function renderPredictions(status, history) {
 
 // ── Settings modal ────────────────────────────────────────────────────────────
 
-const SETTING_KEYS = ['CODING_START_H','CODING_END_H','FIVE_HOUR_PAUSE_PCT','WEEKLY_RESERVE_PCT','WEEKLY_HARD_STOP_PCT','POLL_INTERVAL_MIN','CACHE_STALE_MIN'];
+const SETTING_KEYS = ['CODING_START_H','CODING_END_H','TIMEZONE','FIVE_HOUR_PAUSE_PCT','WEEKLY_RESERVE_PCT','WEEKLY_HARD_STOP_PCT','POLL_INTERVAL_MIN','CACHE_STALE_MIN'];
 
 async function openSettings() {
   const res = await fetch('/settings');
