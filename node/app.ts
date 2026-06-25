@@ -8,7 +8,7 @@ import { createWriteStream } from 'fs'
 
 import * as db from './db.js'
 import * as scheduler from './scheduler.js'
-import { startQueue, setQueue, enqueueTask, forceRunNext } from './runner.js'
+import { startQueue, setQueue, enqueueTask, forceRunTask } from './runner.js'
 import type { Settings } from './db.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -175,8 +175,11 @@ app.delete('/queue/:id', async (req, reply) => {
   return { ok: true }
 })
 
-app.post('/queue/force-run', async () => {
-  return forceRunNext(msg => app.log.info(msg))
+app.post('/queue/:id/force-run', async (req, reply) => {
+  const id = parseInt((req.params as { id: string }).id)
+  const task = db.getTask(id)
+  if (!task) return reply.code(404).send({ error: 'not found' })
+  return forceRunTask(id, msg => app.log.info(msg))
 })
 
 app.get('/queue/skills', async (req) => {

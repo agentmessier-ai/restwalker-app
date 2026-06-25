@@ -153,10 +153,11 @@ export function getQueue() { return _queue }
 
 let _forceRunning = false
 
-export async function forceRunNext(log: (msg: string) => void): Promise<{ ok: boolean; error?: string }> {
+export async function forceRunTask(taskId: number, log: (msg: string) => void): Promise<{ ok: boolean; error?: string }> {
   if (_forceRunning) return { ok: false, error: 'already running a forced task' }
-  const task = db.getTasks(50).find(t => t.status === 'pending')
-  if (!task) return { ok: false, error: 'no pending tasks' }
+  const task = db.getTask(taskId)
+  if (!task) return { ok: false, error: 'task not found' }
+  if (task.status !== 'pending') return { ok: false, error: `task is ${task.status}, not pending` }
   _forceRunning = true
   log(`[queue] force-running task #${task.id}`)
   try {
