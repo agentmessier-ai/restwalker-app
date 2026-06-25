@@ -15,6 +15,7 @@ DB_PATH = Path(os.environ.get(
 SETTING_DEFAULTS: dict[str, str] = {
     "CODING_START_H":       os.environ.get("CODING_START_H",        "16"),
     "CODING_END_H":         os.environ.get("CODING_END_H",          "2"),
+    "TIMEZONE":             os.environ.get("TIMEZONE",              "America/Los_Angeles"),
     "FIVE_HOUR_PAUSE_PCT":  os.environ.get("FIVE_HOUR_THROTTLE_PCT","75"),
     "WEEKLY_RESERVE_PCT":   os.environ.get("WEEKLY_RESERVE_PCT",    "35"),
     "WEEKLY_HARD_STOP_PCT": os.environ.get("WEEKLY_HARD_STOP_PCT",  "90"),

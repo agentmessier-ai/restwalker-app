@@ -135,10 +135,11 @@ def status():
 
     start_h = int(cfg.get("CODING_START_H", 16))
     end_h   = int(cfg.get("CODING_END_H",   2))
+    tz      = cfg.get("TIMEZONE", "America/Los_Angeles")
 
     return {
-        "window":          "coding" if scheduler.is_coding_window(now, start_h, end_h) else "idle",
-        "next_idle_in_s":  scheduler.next_idle_in_s(now, start_h, end_h),
+        "window":          "coding" if scheduler.is_coding_window(now, start_h, end_h, tz) else "idle",
+        "next_idle_in_s":  scheduler.next_idle_in_s(now, start_h, end_h, tz),
         "ok":              decision["ok"],
         "provider":        decision.get("provider"),
         "reason":          decision["reason"],
@@ -154,6 +155,7 @@ def status():
         "thresholds": {
             "coding_start_h":       start_h,
             "coding_end_h":         end_h,
+            "timezone":             tz,
             "five_hour_pause_pct":  float(cfg.get("FIVE_HOUR_PAUSE_PCT",  75)),
             "weekly_reserve_pct":   float(cfg.get("WEEKLY_RESERVE_PCT",   35)),
             "weekly_hard_stop_pct": float(cfg.get("WEEKLY_HARD_STOP_PCT", 90)),

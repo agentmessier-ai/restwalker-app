@@ -13,7 +13,12 @@ from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 
-PST = ZoneInfo("America/Los_Angeles")
+def _tz(name: str = "America/Los_Angeles") -> ZoneInfo:
+    try:
+        return ZoneInfo(name)
+    except Exception:
+        logger.warning(f"[scheduler] unknown timezone {name!r}, falling back to UTC")
+        return ZoneInfo("UTC")
 
 USAGE_CACHE = Path(os.environ.get(
     "CLAUDE_USAGE_CACHE",
@@ -151,19 +156,17 @@ def read_usage(cache_stale_s: float = 1800, force_refresh: bool = False) -> dict
 
 # ── Time gate ─────────────────────────────────────────────────────────────────
 
-def is_coding_window(now: datetime | None = None, start_h: int = 16, end_h: int = 2) -> bool:
-    """True if current PST time is inside the coding window."""
-    pst = (now or datetime.now(timezone.utc)).astimezone(PST)
-    h = pst.hour
+def is_coding_window(now: datetime | None = None, start_h: int = 16, end_h: int = 2, tz: str = "America/Los_Angeles") -> bool:
+    local = (now or datetime.now(timezone.utc)).astimezone(_tz(tz))
+    h = local.hour
     return h >= start_h or h < end_h
 
 
-def next_idle_in_s(now: datetime | None = None, start_h: int = 16, end_h: int = 2) -> int:
-    """Seconds until the idle window opens. 0 if already idle."""
-    if not is_coding_window(now, start_h, end_h):
+def next_idle_in_s(now: datetime | None = None, start_h: int = 16, end_h: int = 2, tz: str = "America/Los_Angeles") -> int:
+    if not is_coding_window(now, start_h, end_h, tz):
         return 0
-    pst = (now or datetime.now(timezone.utc)).astimezone(PST)
-    h, m, s = pst.hour, pst.minute, pst.second
+    local = (now or datetime.now(timezone.utc)).astimezone(_tz(tz))
+    h, m, s = local.hour, local.minute, local.second
     if h >= start_h:
         remaining = (24 - h + end_h) * 3600 - m * 60 - s
     else:
@@ -184,6 +187,7 @@ def can_run(usage: dict | None = None, cfg: dict | None = None) -> dict:
 
     start_h   = int(s.get("CODING_START_H",      16))
     end_h     = int(s.get("CODING_END_H",         2))
+    tz        = s.get("TIMEZONE", "America/Los_Angeles")
     five_h_t  = float(s.get("FIVE_HOUR_PAUSE_PCT", 75))
     reserve   = float(s.get("WEEKLY_RESERVE_PCT",  35))
     hard_stop = float(s.get("WEEKLY_HARD_STOP_PCT",90))
@@ -191,12 +195,12 @@ def can_run(usage: dict | None = None, cfg: dict | None = None) -> dict:
 
     now = datetime.now(timezone.utc)
 
-    if is_coding_window(now, start_h, end_h):
-        idle_in = next_idle_in_s(now, start_h, end_h)
+    if is_coding_window(now, start_h, end_h, tz):
+        idle_in = next_idle_in_s(now, start_h, end_h, tz)
         return {
             "ok": False,
             "provider": None,
-            "reason": f"coding window ({start_h}:00–{end_h}:00 PST); idle in {idle_in // 60}m",
+            "reason": f"coding window ({start_h}:00–{end_h}:00 {tz}); idle in {idle_in // 60}m",
             "next_idle_in_s": idle_in,
         }
 
