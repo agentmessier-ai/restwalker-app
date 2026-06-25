@@ -60,6 +60,7 @@ export interface Task {
   id:           number
   description:  string
   cwd:          string
+  model:        string
   status:       TaskStatus
   result:       string | null
   session_id:   string | null
@@ -105,6 +106,7 @@ export function migrate(): void {
       id           INTEGER PRIMARY KEY AUTOINCREMENT,
       description  TEXT    NOT NULL,
       cwd          TEXT    NOT NULL DEFAULT '',
+      model        TEXT    NOT NULL DEFAULT 'claude-sonnet-4-6',
       status       TEXT    NOT NULL DEFAULT 'pending',
       result       TEXT,
       session_id   TEXT,
@@ -134,6 +136,12 @@ export function migrate(): void {
     for (const [k, v] of Object.entries(defaults)) insert.run(k, v)
   })
   insertMany(SETTING_DEFAULTS)
+
+  // add model column if missing (migration for existing DBs)
+  const cols = (db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[]).map(c => c.name)
+  if (cols.length && !cols.includes('model')) {
+    db.exec("ALTER TABLE tasks ADD COLUMN model TEXT NOT NULL DEFAULT 'claude-sonnet-4-6'")
+  }
 
   db.prepare(
     `DELETE FROM usage_snapshots
@@ -192,10 +200,12 @@ export function usageHistory(hours = 48): HistoryBucket[] {
 
 // ── Queue: tasks ───────────────────────────────────────────────────────────────
 
-export function addTask(description: string, cwd = ''): Task {
+const DEFAULT_MODEL = 'claude-sonnet-4-6'
+
+export function addTask(description: string, cwd = '', model = DEFAULT_MODEL): Task {
   return db.prepare(
-    'INSERT INTO tasks (description, cwd) VALUES (?, ?) RETURNING *'
-  ).get(description, cwd || process.env.HOME || '') as Task
+    'INSERT INTO tasks (description, cwd, model) VALUES (?, ?, ?) RETURNING *'
+  ).get(description, cwd || process.env.HOME || '', model || DEFAULT_MODEL) as Task
 }
 
 export function setTaskRunning(id: number): void {

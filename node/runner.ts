@@ -48,6 +48,7 @@ async function processTask(input: QueuePayload): Promise<void> {
   return new Promise((resolve, reject) => {
     const proc = spawn(CLAUDE_BIN, [
       '--print', '--permission-mode', 'auto', '--output-format', 'text',
+      '--model', task.model || 'claude-sonnet-4-6',
       task.description,
     ], { cwd, env: { ...process.env }, stdio: ['ignore', 'pipe', 'pipe'] })
 

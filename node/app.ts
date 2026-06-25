@@ -158,9 +158,9 @@ app.get('/queue/:id', async (req, reply) => {
 })
 
 app.post('/queue', async (req, reply) => {
-  const { description, cwd } = req.body as { description?: string; cwd?: string }
+  const { description, cwd, model } = req.body as { description?: string; cwd?: string; model?: string }
   if (!description?.trim()) return reply.code(400).send({ error: 'description required' })
-  const task = db.addTask(description.trim(), cwd?.trim())
+  const task = db.addTask(description.trim(), cwd?.trim(), model?.trim())
   enqueueTask(task)
   app.log.info(`[queue] added #${task.id}: ${description.slice(0, 80)}`)
   return { ok: true, task }
