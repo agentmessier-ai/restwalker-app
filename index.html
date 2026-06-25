@@ -247,6 +247,7 @@
       </span>
     </h2>
     <div id="q-task-list"><div style="color:var(--muted);text-align:center;padding:20px;font-style:italic">No tasks yet</div></div>
+    <div id="q-pagination"></div>
   </div>
 
   <div class="section">
@@ -715,6 +716,11 @@ async function init() {
 
 // ── Queue tab ──────────────────────────────────────────────────────────────────
 
+let qPage     = 0
+let qPageSize = 25
+const qExpanded   = new Set()
+const qSessionCache = new Map()
+
 async function loadProjects() {
   const data = await fetch('/projects').then(r => r.json()).catch(() => null)
   if (!data?.projects?.length) return
@@ -764,7 +770,7 @@ function qBadge(status) {
 async function refreshQueue() {
   const [statsRes, tasksRes, skillsRes] = await Promise.all([
     fetch('/queue/stats').then(r => r.json()).catch(() => ({})),
-    fetch('/queue').then(r => r.json()).catch(() => ({ tasks: [] })),
+    fetch(`/queue?limit=${qPageSize}&offset=${qPage * qPageSize}`).then(r => r.json()).catch(() => ({ tasks: [], total: 0 })),
     fetch('/queue/skills').then(r => r.json()).catch(() => ({ skills: [] })),
   ])
 
@@ -774,29 +780,11 @@ async function refreshQueue() {
   document.getElementById('q-stat-failed').textContent  = `${statsRes.failed ?? 0} failed`
 
   const tasks = tasksRes.tasks ?? []
-  const tEl = document.getElementById('q-task-list')
-  if (!tasks.length) {
-    tEl.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;font-style:italic">No tasks yet</div>'
-  } else {
-    tEl.innerHTML = tasks.map(t => `
-      <div style="display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:start;padding:10px 0;border-bottom:1px solid var(--border)">
-        <span style="color:var(--muted);font-size:11px;min-width:28px">#${t.id}</span>
-        <div>
-          <div style="font-size:13px;line-height:1.5">${t.description}</div>
-          <div style="color:var(--muted);font-size:11px;margin-top:3px">
-            ${t.cwd ? `${t.cwd} · ` : ''}${t.model ? `<span style="color:var(--accent);opacity:.7">${t.model.replace('claude-','')}</span> · ` : ''}added ${qTimeSince(t.created_at)}${t.finished_at ? ` · finished ${qTimeSince(t.finished_at)}` : ''}${t.tool_calls ? ` · ${t.tool_calls} tool calls` : ''}
-          </div>
-          ${t.result ? `<div style="font-size:11px;color:var(--muted);margin-top:4px;cursor:pointer;max-height:48px;overflow:hidden" onclick="this.style.maxHeight=this.style.maxHeight?'':''">${t.result}</div>` : ''}
-          ${t.skill_path ? `<div style="font-size:10px;color:var(--accent);background:rgba(99,102,241,.1);border-radius:4px;padding:2px 6px;margin-top:4px;display:inline-block">⚡ ${t.skill_path.split('/').pop()}</div>` : ''}
-        </div>
-        <div style="display:flex;gap:6px;align-items:center">
-          ${qBadge(t.status)}
-          ${t.status === 'pending' ? `<button id="force-${t.id}" onclick="queueForceRun(${t.id})" style="background:#f59e0b;color:#0f1117;border:none;border-radius:4px;padding:3px 7px;cursor:pointer;font-size:11px;font-weight:600">▶</button>` : ''}
-          ${t.status === 'pending' ? `<button onclick="queueDeleteTask(${t.id})" style="background:#ef4444;color:white;border:none;border-radius:4px;padding:3px 7px;cursor:pointer;font-size:11px">✕</button>` : ''}
-        </div>
-      </div>
-    `).join('')
-  }
+  const total = tasksRes.total ?? 0
+  const totalPages = Math.max(1, Math.ceil(total / qPageSize))
+
+  renderTaskList(tasks)
+  renderPagination(total, totalPages)
 
   const skills = skillsRes.skills ?? []
   document.getElementById('q-skill-count').textContent = skills.length ? `(${skills.length})` : ''
@@ -808,10 +796,164 @@ async function refreshQueue() {
       <div style="padding:10px 0;border-bottom:1px solid var(--border)">
         <div style="color:var(--accent);font-weight:600;font-size:13px">⚡ ${s.name}</div>
         <div style="color:var(--muted);font-size:11px;margin-top:2px">${s.description}</div>
-        <div style="color:var(--border);font-size:10px;margin-top:2px">${s.tool_calls} tool calls · task #${s.task_id} · ${qTimeSince(s.created_at)}</div>
+        <div style="color:var(--muted);font-size:10px;margin-top:2px">${s.tool_calls} tool calls · task #${s.task_id} · ${qTimeSince(s.created_at)}</div>
       </div>
     `).join('')
   }
+}
+
+function renderTaskList(tasks) {
+  const tEl = document.getElementById('q-task-list')
+  if (!tasks.length) {
+    tEl.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;font-style:italic">No tasks yet</div>'
+    return
+  }
+  tEl.innerHTML = tasks.map(t => {
+    const expanded = qExpanded.has(t.id)
+    const hasSession = !!t.session_path
+    const expandIcon = expanded ? '▾' : '▸'
+    return `
+    <div id="task-row-${t.id}" style="border-bottom:1px solid var(--border)">
+      <div style="display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:start;padding:10px 0;cursor:pointer" onclick="qToggleExpand(${t.id}, event)">
+        <span style="color:var(--muted);font-size:11px;min-width:28px;padding-top:2px">#${t.id}</span>
+        <div>
+          <div style="font-size:13px;line-height:1.5;display:flex;align-items:center;gap:6px">
+            <span style="color:var(--muted);font-size:11px;user-select:none">${expandIcon}</span>
+            <span>${escHtml(t.description)}</span>
+          </div>
+          <div style="color:var(--muted);font-size:11px;margin-top:3px;padding-left:18px">
+            ${t.cwd ? `<span>${t.cwd}</span> · ` : ''}${t.model ? `<span style="color:#818cf8">${t.model.replace('claude-','')}</span> · ` : ''}added ${qTimeSince(t.created_at)}${t.finished_at ? ` · finished ${qTimeSince(t.finished_at)}` : ''}${t.tool_calls ? ` · ${t.tool_calls} tools` : ''}${t.tokens_used ? ` · ${t.tokens_used.toLocaleString()} tok` : ''}
+          </div>
+          ${t.skill_path ? `<div style="font-size:10px;color:#818cf8;background:rgba(99,102,241,.1);border-radius:4px;padding:2px 6px;margin-top:4px;margin-left:18px;display:inline-block">⚡ ${t.skill_path.split('/').pop()}</div>` : ''}
+        </div>
+        <div style="display:flex;gap:6px;align-items:center" onclick="event.stopPropagation()">
+          ${qBadge(t.status)}
+          ${t.status === 'pending' ? `<button id="force-${t.id}" onclick="queueForceRun(${t.id})" style="background:#f59e0b;color:#0f1117;border:none;border-radius:4px;padding:3px 7px;cursor:pointer;font-size:11px;font-weight:600">▶</button>` : ''}
+          ${t.status === 'pending' ? `<button onclick="queueDeleteTask(${t.id})" style="background:#ef4444;color:white;border:none;border-radius:4px;padding:3px 7px;cursor:pointer;font-size:11px">✕</button>` : ''}
+        </div>
+      </div>
+      <div id="task-expand-${t.id}" style="display:${expanded ? 'block' : 'none'};padding:0 0 12px 38px">
+        ${expanded ? renderTaskDetail(t, hasSession) : ''}
+      </div>
+    </div>`
+  }).join('')
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+}
+
+function renderTaskDetail(t, hasSession) {
+  const cached = qSessionCache.get(t.id)
+  let html = ''
+  if (t.result) {
+    html += `<div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;font-size:12px;font-family:var(--mono);white-space:pre-wrap;color:var(--text);margin-bottom:8px;max-height:200px;overflow-y:auto">${escHtml(t.result)}</div>`
+  }
+  if (!hasSession) {
+    html += `<div style="color:var(--muted);font-size:11px;font-style:italic">No session recorded</div>`
+  } else if (!cached) {
+    html += `<div id="session-loading-${t.id}" style="color:var(--muted);font-size:11px">Loading session…</div>`
+    loadSession(t.id)
+  } else if (cached.error) {
+    html += `<div style="color:var(--red);font-size:11px">${cached.error}</div>`
+  } else {
+    html += renderSession(cached.turns)
+  }
+  return html
+}
+
+async function loadSession(taskId) {
+  try {
+    const data = await fetch(`/queue/${taskId}/session`).then(r => r.json())
+    qSessionCache.set(taskId, data)
+  } catch(e) {
+    qSessionCache.set(taskId, { error: e.message })
+  }
+  const expandEl = document.getElementById(`task-expand-${taskId}`)
+  if (!expandEl || !qExpanded.has(taskId)) return
+  // Re-render the detail section
+  const tasks = Array.from(document.querySelectorAll('[id^="task-row-"]'))
+  // Simple: just refresh queue but preserve expansion
+  refreshQueue()
+}
+
+function renderSession(turns) {
+  if (!turns?.length) return '<div style="color:var(--muted);font-size:11px;font-style:italic">Empty session</div>'
+  return turns.map((turn, i) => {
+    if (turn.role === 'user' && i === 0) return '' // skip first user turn (= task description)
+    if (turn.role === 'user') {
+      return `<div style="margin:6px 0;padding:6px 10px;background:rgba(255,255,255,.04);border-radius:6px;font-size:11px;color:var(--muted)">${escHtml(turn.text || '')}</div>`
+    }
+    // assistant turn
+    let html = '<div style="margin:8px 0">'
+    if (turn.thinking) {
+      const id = 'think-' + Math.random().toString(36).slice(2)
+      html += `<div style="margin-bottom:6px">
+        <button onclick="const d=document.getElementById('${id}');d.style.display=d.style.display?'':'none'"
+          style="background:rgba(139,92,246,.15);border:1px solid rgba(139,92,246,.3);color:#a78bfa;border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer;font-family:inherit">
+          💭 Reasoning (${Math.round(turn.thinking.length/1000)}k chars)
+        </button>
+        <div id="${id}" style="display:none;margin-top:6px;background:rgba(139,92,246,.05);border:1px solid rgba(139,92,246,.2);border-radius:6px;padding:8px;font-size:11px;font-family:var(--mono);white-space:pre-wrap;color:#c4b5fd;max-height:300px;overflow-y:auto">${escHtml(turn.thinking)}</div>
+      </div>`
+    }
+    if (turn.text) {
+      html += `<div style="font-size:12px;color:var(--text);white-space:pre-wrap;line-height:1.6;margin-bottom:4px">${escHtml(turn.text)}</div>`
+    }
+    for (const tc of (turn.tool_calls || [])) {
+      const inputStr = JSON.stringify(tc.input, null, 2)
+      const resultStr = tc.result || ''
+      const tcId = 'tc-' + Math.random().toString(36).slice(2)
+      html += `<div style="margin:4px 0;border:1px solid var(--border);border-radius:6px;overflow:hidden;font-size:11px;font-family:var(--mono)">
+        <div onclick="const d=document.getElementById('${tcId}');d.style.display=d.style.display?'':'block'"
+          style="display:flex;align-items:center;gap:8px;padding:5px 10px;background:rgba(59,130,246,.08);cursor:pointer;user-select:none">
+          <span style="color:#60a5fa;font-weight:600">${escHtml(tc.name)}</span>
+          <span style="color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(summarizeInput(tc.input))}</span>
+          <span style="color:var(--muted);font-size:10px">${resultStr ? '✓' : ''}</span>
+        </div>
+        <div id="${tcId}" style="display:none">
+          <div style="padding:6px 10px;background:rgba(0,0,0,.2);white-space:pre-wrap;color:var(--muted);max-height:200px;overflow-y:auto">${escHtml(inputStr.slice(0,2000))}</div>
+          ${resultStr ? `<div style="padding:6px 10px;border-top:1px solid var(--border);white-space:pre-wrap;color:#86efac;max-height:200px;overflow-y:auto">${escHtml(resultStr)}</div>` : ''}
+        </div>
+      </div>`
+    }
+    html += '</div>'
+    return html
+  }).join('')
+}
+
+function summarizeInput(input) {
+  if (!input || typeof input !== 'object') return ''
+  const v = input.command || input.file_path || input.path || input.prompt || input.query || Object.values(input)[0] || ''
+  return String(v).slice(0, 120)
+}
+
+function renderPagination(total, totalPages) {
+  const pEl = document.getElementById('q-pagination')
+  if (!pEl) return
+  const start = qPage * qPageSize + 1
+  const end   = Math.min(start + qPageSize - 1, total)
+  pEl.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-top:12px;font-size:12px;color:var(--muted)">
+      <span>${total ? `${start}–${end} of ${total}` : '0 tasks'}</span>
+      <select onchange="qSetPageSize(+this.value)" style="background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:2px 6px;font-size:12px;cursor:pointer">
+        ${[25,50,100].map(n => `<option value="${n}"${n===qPageSize?' selected':''}>${n} / page</option>`).join('')}
+      </select>
+      <div style="display:flex;gap:4px">
+        <button onclick="qSetPage(0)" ${qPage===0?'disabled':''} style="background:var(--bg);border:1px solid var(--border);border-radius:4px;color:${qPage===0?'var(--muted)':'var(--text)'};padding:2px 8px;cursor:${qPage===0?'default':'pointer'};font-size:12px">«</button>
+        <button onclick="qSetPage(${qPage-1})" ${qPage===0?'disabled':''} style="background:var(--bg);border:1px solid var(--border);border-radius:4px;color:${qPage===0?'var(--muted)':'var(--text)'};padding:2px 8px;cursor:${qPage===0?'default':'pointer'};font-size:12px">‹</button>
+        <span style="padding:2px 10px;background:var(--card);border:1px solid var(--border);border-radius:4px">${qPage+1} / ${totalPages}</span>
+        <button onclick="qSetPage(${qPage+1})" ${qPage>=totalPages-1?'disabled':''} style="background:var(--bg);border:1px solid var(--border);border-radius:4px;color:${qPage>=totalPages-1?'var(--muted)':'var(--text)'};padding:2px 8px;cursor:${qPage>=totalPages-1?'default':'pointer'};font-size:12px">›</button>
+        <button onclick="qSetPage(${totalPages-1})" ${qPage>=totalPages-1?'disabled':''} style="background:var(--bg);border:1px solid var(--border);border-radius:4px;color:${qPage>=totalPages-1?'var(--muted)':'var(--text)'};padding:2px 8px;cursor:${qPage>=totalPages-1?'default':'pointer'};font-size:12px">»</button>
+      </div>
+    </div>`
+}
+
+function qSetPage(p) { qPage = p; refreshQueue() }
+function qSetPageSize(s) { qPageSize = s; qPage = 0; refreshQueue() }
+
+function qToggleExpand(taskId, event) {
+  if (qExpanded.has(taskId)) { qExpanded.delete(taskId) } else { qExpanded.add(taskId) }
+  refreshQueue()
 }
 
 async function queueAddTask() {

@@ -242,8 +242,12 @@ export function setTaskFailed(id: number, error: string): void {
   ).run(error, id)
 }
 
-export function getTasks(limit = 50): Task[] {
-  return db.prepare('SELECT * FROM tasks ORDER BY id DESC LIMIT ?').all(limit) as Task[]
+export function getTasks(limit = 25, offset = 0): Task[] {
+  return db.prepare('SELECT * FROM tasks ORDER BY id DESC LIMIT ? OFFSET ?').all(limit, offset) as Task[]
+}
+
+export function getTaskCount(): number {
+  return (db.prepare('SELECT COUNT(*) AS n FROM tasks').get() as { n: number }).n
 }
 
 export function getTask(id: number): Task | null {
@@ -275,6 +279,7 @@ export function queueStats(): { pending: number; running: number; done: number; 
       SUM(CASE WHEN status='failed'    THEN 1 ELSE 0 END) AS failed
     FROM tasks WHERE status != 'cancelled'
   `).get() as { pending: number; running: number; done: number; failed: number }
+  const total  = (db.prepare('SELECT COUNT(*) AS n FROM tasks').get() as { n: number }).n
   const skills = (db.prepare('SELECT COUNT(*) AS n FROM skills').get() as { n: number }).n
-  return { ...row, skills }
+  return { ...row, total, skills }
 }

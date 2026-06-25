@@ -215,8 +215,10 @@ app.get('/models', async (_req, reply) => {
 app.get('/queue/stats', async () => db.queueStats())
 
 app.get('/queue', async (req) => {
-  const limit = parseInt((req.query as Record<string, string>).limit ?? '50')
-  return { tasks: db.getTasks(limit) }
+  const q      = req.query as Record<string, string>
+  const limit  = Math.min(parseInt(q.limit  ?? '25'), 100)
+  const offset = Math.max(parseInt(q.offset ?? '0'),  0)
+  return { tasks: db.getTasks(limit, offset), total: db.getTaskCount() }
 })
 
 app.get('/queue/:id', async (req, reply) => {
@@ -248,6 +250,78 @@ app.post('/queue/:id/force-run', async (req, reply) => {
   const task = db.getTask(id)
   if (!task) return reply.code(404).send({ error: 'not found' })
   return forceRunTask(id, msg => app.log.info(msg))
+})
+
+app.get('/queue/:id/session', async (req, reply) => {
+  const task = db.getTask(parseInt((req.params as { id: string }).id))
+  if (!task) return reply.code(404).send({ error: 'not found' })
+  if (!task.session_path) return reply.code(404).send({ error: 'no session recorded' })
+  if (!existsSync(task.session_path)) return reply.code(404).send({ error: 'session file missing' })
+
+  try {
+    const lines = readFileSync(task.session_path, 'utf8').split('\n').filter(Boolean)
+
+    // Pass 1: collect tool results keyed by tool_use_id
+    const toolResults = new Map<string, string>()
+    for (const line of lines) {
+      const e = JSON.parse(line)
+      if (e.type === 'user' && Array.isArray(e.message?.content)) {
+        for (const b of e.message.content) {
+          if (b.type !== 'tool_result') continue
+          const raw = Array.isArray(b.content)
+            ? b.content.map((c: {text?: string}) => c.text ?? '').join('')
+            : String(b.content ?? '')
+          toolResults.set(b.tool_use_id, raw.slice(0, 3000))
+        }
+      }
+    }
+
+    // Pass 2: build turns
+    interface Turn {
+      role: 'user' | 'assistant'
+      text: string | null
+      thinking: string | null
+      tool_calls: { name: string; input: Record<string, unknown>; result: string | null }[]
+    }
+    const turns: Turn[] = []
+    let firstUser = true
+
+    for (const line of lines) {
+      const e = JSON.parse(line)
+
+      if (e.type === 'user') {
+        const content = e.message?.content
+        let text: string | null = null
+        if (typeof content === 'string') text = content.trim() || null
+        else if (Array.isArray(content)) {
+          const parts = content.filter((b: {type:string}) => b.type === 'text').map((b: {text:string}) => b.text)
+          text = parts.join('\n').trim() || null
+        }
+        if (firstUser) { firstUser = false; if (text) turns.push({ role: 'user', text, thinking: null, tool_calls: [] }) }
+        else if (text)  turns.push({ role: 'user', text, thinking: null, tool_calls: [] })
+
+      } else if (e.type === 'assistant') {
+        const content = e.message?.content
+        if (!Array.isArray(content)) continue
+        const thinking = content.filter((b: {type:string}) => b.type === 'thinking')
+          .map((b: {thinking:string}) => b.thinking).join('\n').slice(0, 8000) || null
+        const text = content.filter((b: {type:string}) => b.type === 'text')
+          .map((b: {text:string}) => b.text).join('\n').trim().slice(0, 4000) || null
+        const tool_calls = content.filter((b: {type:string}) => b.type === 'tool_use')
+          .map((b: {id:string;name:string;input:Record<string,unknown>}) => ({
+            name:   b.name,
+            input:  b.input,
+            result: toolResults.get(b.id) ?? null,
+          }))
+        if (thinking || text || tool_calls.length)
+          turns.push({ role: 'assistant', text, thinking, tool_calls })
+      }
+    }
+
+    return { turns }
+  } catch (e) {
+    return reply.code(500).send({ error: (e as Error).message })
+  }
 })
 
 app.get('/queue/skills', async (req) => {
