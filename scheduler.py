@@ -4,6 +4,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import subprocess
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -17,15 +20,74 @@ USAGE_CACHE = Path(os.environ.get(
     Path.home() / ".claude" / ".usage_cache.json",
 ))
 
+USAGE_API = "https://api.anthropic.com/api/oauth/usage"
+KEYCHAIN_SERVICE = "Claude Code-credentials"
+
+
+# ── OAuth token ───────────────────────────────────────────────────────────────
+
+def _read_keychain_token() -> str | None:
+    """Read Claude Code OAuth access token from macOS Keychain."""
+    try:
+        raw = subprocess.check_output(
+            ["security", "find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"],
+            stderr=subprocess.DEVNULL, timeout=5,
+        ).decode().strip()
+        data = json.loads(raw)
+        return data.get("claudeAiOauth", {}).get("accessToken")
+    except Exception:
+        return None
+
 
 # ── Usage reading ─────────────────────────────────────────────────────────────
 
-def read_usage(cache_stale_s: float = 1800) -> dict:
-    """Read current Claude Max usage from the Claude Code CLI cache file.
+def fetch_usage_from_api() -> dict:
+    """Fetch live usage directly from api.anthropic.com/api/oauth/usage.
 
-    Returns dict with: five_hour_pct, weekly_pct, weekly_resets_at, age_s, stale.
-    Returns {} if the file does not exist or cannot be parsed.
+    This is the same endpoint ccstatusline uses — gives real-time percentages.
+    Returns dict with: five_hour_pct, weekly_pct, weekly_resets_at, source='api'.
+    Returns {} on failure.
     """
+    token = _read_keychain_token()
+    if not token:
+        logger.warning("[scheduler] keychain token not found")
+        return {}
+    try:
+        req = urllib.request.Request(
+            USAGE_API,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "anthropic-beta": "oauth-2025-04-20",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read())
+
+        five_h  = data.get("five_hour", {})
+        seven_d = data.get("seven_day", {})
+
+        five_h_pct = five_h.get("utilization")
+        weekly_pct = seven_d.get("utilization")
+
+        if five_h_pct is None or weekly_pct is None:
+            return {}
+
+        resets_at = seven_d.get("resets_at")
+        return {
+            "five_hour_pct":    float(five_h_pct),
+            "weekly_pct":       float(weekly_pct),
+            "weekly_resets_at": resets_at,
+            "age_s":            0.0,
+            "stale":            False,
+            "source":           "api",
+        }
+    except Exception as e:
+        logger.warning(f"[scheduler] API fetch failed: {e}")
+        return {}
+
+
+def _read_usage_from_file(cache_stale_s: float = 1800) -> dict:
+    """Fallback: read from .usage_cache.json written by Claude Code CLI."""
     if not USAGE_CACHE.exists():
         return {}
     try:
@@ -33,28 +95,33 @@ def read_usage(cache_stale_s: float = 1800) -> dict:
         age_s = datetime.now().timestamp() - stat.st_mtime
         data = json.loads(USAGE_CACHE.read_text())
         rl = data.get("rate_limits", {})
-
-        five_h_pct   = rl.get("five_hour", {}).get("used_percentage")
-        weekly_pct   = rl.get("seven_day", {}).get("used_percentage")
+        five_h_pct = rl.get("five_hour", {}).get("used_percentage")
+        weekly_pct = rl.get("seven_day", {}).get("used_percentage")
         resets_epoch = rl.get("seven_day", {}).get("resets_at")
-
         if five_h_pct is None or weekly_pct is None:
             return {}
-
         resets_at = None
         if resets_epoch:
             resets_at = datetime.fromtimestamp(float(resets_epoch), tz=timezone.utc).isoformat()
-
         return {
             "five_hour_pct":    float(five_h_pct),
             "weekly_pct":       float(weekly_pct),
             "weekly_resets_at": resets_at,
             "age_s":            age_s,
             "stale":            age_s > cache_stale_s,
+            "source":           "file",
         }
     except Exception as e:
-        logger.warning(f"[scheduler] failed to read usage cache: {e}")
+        logger.warning(f"[scheduler] file read failed: {e}")
         return {}
+
+
+def read_usage(cache_stale_s: float = 1800) -> dict:
+    """Return usage data. Tries live API first, falls back to .usage_cache.json."""
+    usage = fetch_usage_from_api()
+    if usage:
+        return usage
+    return _read_usage_from_file(cache_stale_s)
 
 
 # ── Time gate ─────────────────────────────────────────────────────────────────

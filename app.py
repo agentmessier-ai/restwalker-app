@@ -147,6 +147,7 @@ def status():
             "weekly_resets_at": usage.get("weekly_resets_at"),
             "cache_age_s":      round(usage.get("age_s", 0), 1) if usage else None,
             "stale":            usage.get("stale", True),
+            "source":           usage.get("source"),
         },
         "last_db_snapshot": dict(snap) if snap else None,
         "thresholds": {
