@@ -8,7 +8,7 @@
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
-    --green:  #22c55e; --amber: #f59e0b; --red: #ef4444; --blue: #3b82f6;
+    --green: #22c55e; --amber: #f59e0b; --red: #ef4444; --blue: #3b82f6;
     --bg: #0f172a; --card: #1e293b; --border: #334155;
     --text: #e2e8f0; --muted: #64748b; --mono: 'JetBrains Mono', 'Fira Code', monospace;
   }
@@ -20,65 +20,107 @@
     padding: 16px 24px; border-bottom: 1px solid var(--border);
   }
   header h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; }
-  header span { font-size: 13px; color: var(--muted); }
+  header span.sub { font-size: 13px; color: var(--muted); }
+  .header-right { display: flex; align-items: center; gap: 12px; }
   .status-pill {
     display: flex; align-items: center; gap: 8px;
     padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 600;
     background: var(--card); border: 1px solid var(--border);
   }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
-  .dot.green  { background: var(--green);  box-shadow: 0 0 6px var(--green); }
-  .dot.amber  { background: var(--amber);  box-shadow: 0 0 6px var(--amber); }
-  .dot.red    { background: var(--red);    box-shadow: 0 0 6px var(--red); }
+  .dot.green { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .dot.amber { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
+  .dot.red   { background: var(--red);   box-shadow: 0 0 6px var(--red); }
+  .ts { font-size: 12px; color: var(--muted); }
+
+  /* ── Gear button ── */
+  .gear-btn {
+    background: var(--card); border: 1px solid var(--border);
+    color: var(--muted); border-radius: 8px;
+    width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; font-size: 16px; transition: color .15s, border-color .15s;
+  }
+  .gear-btn:hover { color: var(--text); border-color: var(--text); }
 
   /* ── Layout ── */
   main { padding: 20px 24px; max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
 
-  /* ── Cards row ── */
+  /* ── Cards ── */
   .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
   .card .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); margin-bottom: 8px; }
   .card .value { font-size: 28px; font-weight: 700; font-family: var(--mono); line-height: 1; }
   .card .sub   { font-size: 12px; color: var(--muted); margin-top: 6px; }
-
-  /* ── Usage bar ── */
-  .bar-wrap { margin-top: 10px; position: relative; height: 6px; background: var(--border); border-radius: 3px; overflow: visible; }
-  .bar-fill { height: 100%; border-radius: 3px; transition: width .4s; }
-  .bar-fill.green  { background: var(--green); }
-  .bar-fill.amber  { background: var(--amber); }
-  .bar-fill.red    { background: var(--red); }
-  .bar-marker {
-    position: absolute; top: -4px; width: 2px; height: 14px;
-    background: var(--muted); border-radius: 1px; opacity: 0.7;
+  .stale-badge {
+    display: inline-block; font-size: 10px; font-weight: 600; padding: 1px 6px;
+    border-radius: 4px; background: rgba(245,158,11,0.15); color: var(--amber);
+    margin-left: 6px; vertical-align: middle;
   }
+
+  /* ── Bar ── */
+  .bar-wrap { margin-top: 10px; position: relative; height: 6px; background: var(--border); border-radius: 3px; }
+  .bar-fill { height: 100%; border-radius: 3px; transition: width .4s; }
+  .bar-fill.green { background: var(--green); }
+  .bar-fill.amber { background: var(--amber); }
+  .bar-fill.red   { background: var(--red); }
+  .bar-marker { position: absolute; top: -4px; width: 2px; height: 14px; background: var(--muted); border-radius: 1px; opacity: 0.6; }
 
   /* ── Section ── */
   .section { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 20px; }
-  .section h2 { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 16px; }
-
-  /* ── Chart ── */
+  .section h2 { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 16px; }
   .chart-wrap { position: relative; height: 220px; }
+  .legend { display: flex; gap: 20px; margin-top: 12px; font-size: 12px; color: var(--muted); }
 
   /* ── Predictions ── */
   .predictions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
-  .pred-item {
-    display: flex; align-items: flex-start; gap: 10px;
-    background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px;
-  }
-  .pred-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+  .pred-item { display: flex; align-items: flex-start; gap: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+  .pred-icon { font-size: 18px; flex-shrink: 0; }
   .pred-title { font-size: 12px; color: var(--muted); margin-bottom: 2px; }
   .pred-value { font-size: 14px; font-weight: 600; }
   .pred-value.green { color: var(--green); }
   .pred-value.amber { color: var(--amber); }
   .pred-value.red   { color: var(--red); }
 
-  /* ── Jobs table ── */
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { text-align: left; padding: 8px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); border-bottom: 1px solid var(--border); }
-  td { padding: 9px 12px; border-bottom: 1px solid var(--border); font-family: var(--mono); }
-  tr:last-child td { border-bottom: none; }
-  tr:hover td { background: rgba(255,255,255,0.02); }
-  /* ── Footer ── */
+  /* ── Modal overlay ── */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+    z-index: 100; align-items: center; justify-content: center;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    width: 480px; max-width: calc(100vw - 32px); max-height: calc(100vh - 64px);
+    overflow-y: auto; padding: 24px;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.5);
+  }
+  .modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+  .modal-header h2 { font-size: 16px; font-weight: 700; }
+  .modal-close { background: none; border: none; color: var(--muted); font-size: 20px; cursor: pointer; line-height: 1; padding: 2px 6px; border-radius: 4px; }
+  .modal-close:hover { color: var(--text); background: var(--border); }
+
+  /* ── Settings form ── */
+  .settings-group { margin-bottom: 20px; }
+  .settings-group-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); font-weight: 600; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .setting-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 12px; }
+  .setting-label { font-size: 13px; color: var(--text); flex: 1; }
+  .setting-hint  { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .setting-input-wrap { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .setting-input {
+    width: 72px; text-align: right; padding: 6px 10px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text); font-size: 13px; font-family: var(--mono);
+  }
+  .setting-input:focus { outline: none; border-color: var(--blue); }
+  .setting-unit { font-size: 12px; color: var(--muted); white-space: nowrap; }
+
+  .modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border); }
+  .btn { padding: 8px 18px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; }
+  .btn-secondary { background: var(--bg); border: 1px solid var(--border); color: var(--text); }
+  .btn-primary   { background: var(--blue); color: #fff; }
+  .btn:hover     { opacity: 0.85; }
+  .save-status { font-size: 12px; color: var(--green); align-self: center; margin-right: auto; display: none; }
+
   footer { text-align: center; font-size: 12px; color: var(--muted); padding: 16px; }
 
   @media (max-width: 700px) {
@@ -92,20 +134,19 @@
 <header>
   <div>
     <h1>cc-provider</h1>
-    <span>Claude Max Plan Router</span>
+    <span class="sub">Claude Max Plan Router</span>
   </div>
-  <div style="display:flex;align-items:center;gap:12px;">
-    <span id="refresh-ts" style="font-size:12px;color:var(--muted)"></span>
+  <div class="header-right">
+    <span class="ts" id="refresh-ts"></span>
     <div class="status-pill">
       <div class="dot" id="status-dot"></div>
       <span id="status-label">—</span>
     </div>
+    <button class="gear-btn" title="Settings" onclick="openSettings()">⚙</button>
   </div>
 </header>
 
 <main>
-
-  <!-- Cards -->
   <div class="cards">
     <div class="card">
       <div class="label">Window</div>
@@ -113,23 +154,23 @@
       <div class="sub" id="card-window-sub"></div>
     </div>
     <div class="card">
-      <div class="label">5h Usage</div>
+      <div class="label">5h Usage <span class="stale-badge" id="stale-badge" style="display:none">STALE</span></div>
       <div class="value" id="card-5h">—</div>
       <div class="bar-wrap">
         <div class="bar-fill" id="bar-5h" style="width:0%"></div>
-        <div class="bar-marker" id="marker-5h" style="left:75%"></div>
+        <div class="bar-marker" id="marker-5h"></div>
       </div>
-      <div class="sub" id="card-5h-sub">pause at 75%</div>
+      <div class="sub" id="card-5h-sub"></div>
     </div>
     <div class="card">
       <div class="label">Weekly Usage</div>
       <div class="value" id="card-weekly">—</div>
       <div class="bar-wrap">
         <div class="bar-fill" id="bar-weekly" style="width:0%"></div>
-        <div class="bar-marker" id="marker-weekly-pause" style="left:65%"></div>
-        <div class="bar-marker" id="marker-weekly-stop" style="left:90%"></div>
+        <div class="bar-marker" id="marker-weekly-pause"></div>
+        <div class="bar-marker" id="marker-weekly-stop"></div>
       </div>
-      <div class="sub" id="card-weekly-sub">pause at 65% · stop at 90%</div>
+      <div class="sub" id="card-weekly-sub"></div>
     </div>
     <div class="card">
       <div class="label">Next Milestone</div>
@@ -138,42 +179,126 @@
     </div>
   </div>
 
-  <!-- Chart -->
   <div class="section">
     <h2>Usage Trend (48h)</h2>
-    <div class="chart-wrap">
-      <canvas id="chart"></canvas>
-    </div>
-    <div style="display:flex;gap:20px;margin-top:12px;font-size:12px;color:var(--muted)">
+    <div class="chart-wrap"><canvas id="chart"></canvas></div>
+    <div class="legend">
       <span><span style="color:#3b82f6">●</span> 5h usage</span>
       <span><span style="color:#22c55e">●</span> weekly usage</span>
-      <span><span style="color:rgba(100,116,139,0.5)">█</span> coding window</span>
+      <span><span style="color:rgba(100,116,139,0.4)">█</span> coding window</span>
     </div>
   </div>
 
-  <!-- Predictions -->
   <div class="section">
     <h2>Predictions</h2>
     <div class="predictions" id="predictions"></div>
   </div>
-
-
 </main>
-<footer id="footer">refreshing every 60s</footer>
+
+<footer>auto-refreshes every 60s · syncs on open</footer>
+
+<!-- Settings modal -->
+<div class="modal-overlay" id="modal-overlay" onclick="maybeCloseModal(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>⚙ Settings</h2>
+      <button class="modal-close" onclick="closeSettings()">✕</button>
+    </div>
+
+    <div class="settings-group">
+      <div class="settings-group-title">Schedule (PST)</div>
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Coding window start</div>
+          <div class="setting-hint">Jobs are paused after this hour</div>
+        </div>
+        <div class="setting-input-wrap">
+          <input class="setting-input" type="number" min="0" max="23" id="s-CODING_START_H">
+          <span class="setting-unit">h (PST)</span>
+        </div>
+      </div>
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Coding window end</div>
+          <div class="setting-hint">Jobs resume after this hour</div>
+        </div>
+        <div class="setting-input-wrap">
+          <input class="setting-input" type="number" min="0" max="23" id="s-CODING_END_H">
+          <span class="setting-unit">h (PST)</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <div class="settings-group-title">Budget Thresholds</div>
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">5h pause at</div>
+          <div class="setting-hint">Pause when 5h rolling window hits this %</div>
+        </div>
+        <div class="setting-input-wrap">
+          <input class="setting-input" type="number" min="1" max="100" id="s-FIVE_HOUR_PAUSE_PCT">
+          <span class="setting-unit">%</span>
+        </div>
+      </div>
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Weekly reserve</div>
+          <div class="setting-hint">Keep this % of weekly budget for coding</div>
+        </div>
+        <div class="setting-input-wrap">
+          <input class="setting-input" type="number" min="0" max="99" id="s-WEEKLY_RESERVE_PCT">
+          <span class="setting-unit">%</span>
+        </div>
+      </div>
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Weekly hard stop</div>
+          <div class="setting-hint">Full stop at this weekly %</div>
+        </div>
+        <div class="setting-input-wrap">
+          <input class="setting-input" type="number" min="1" max="100" id="s-WEEKLY_HARD_STOP_PCT">
+          <span class="setting-unit">%</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <div class="settings-group-title">Polling</div>
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Poll interval</div>
+          <div class="setting-hint">How often to read the Claude Code cache</div>
+        </div>
+        <div class="setting-input-wrap">
+          <input class="setting-input" type="number" min="1" max="60" id="s-POLL_INTERVAL_MIN">
+          <span class="setting-unit">min</span>
+        </div>
+      </div>
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Cache stale after</div>
+          <div class="setting-hint">Treat cache as stale if older than this</div>
+        </div>
+        <div class="setting-input-wrap">
+          <input class="setting-input" type="number" min="1" max="1440" id="s-CACHE_STALE_MIN">
+          <span class="setting-unit">min</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <span class="save-status" id="save-status">✓ Saved</span>
+      <button class="btn btn-secondary" onclick="closeSettings()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveSettings()">Save</button>
+    </div>
+  </div>
+</div>
 
 <script>
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-const PST_OFFSET_H = -8; // PST standard; daylight handled by toLocaleString
-const CODING_START = 16; // 4pm PST
-const CODING_END   = 2;  // 2am PST
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmtPct(v) { return v == null ? '—' : Math.round(v) + '%'; }
-function fmtDur(s) {
-  if (s == null) return '—';
-  if (s < 60) return Math.round(s) + 's';
-  return Math.floor(s/60) + 'm ' + Math.round(s%60) + 's';
-}
 function fmtTs(iso) {
   if (!iso) return '—';
   return new Date(iso).toLocaleString('en-US', {
@@ -186,361 +311,252 @@ function fmtHours(h) {
   if (h < 24) return h.toFixed(1) + 'h';
   return (h / 24).toFixed(1) + 'd';
 }
-
-function isCodingHour(date) {
-  // Returns true if this UTC date is in the PST coding window (4pm–2am PST)
-  const pstH = ((date.getUTCHours() - 8 + 24) % 24); // approximate PST
-  return pstH >= CODING_START || pstH < CODING_END;
-}
-
 function barColor(pct, warnAt, stopAt) {
   if (pct >= stopAt) return 'red';
   if (pct >= warnAt) return 'amber';
   return 'green';
 }
-
-// Linear regression slope over [{x: ms, y: pct}]
+function isCodingHour(date, startH, endH) {
+  const pstH = ((date.getUTCHours() - 8 + 24) % 24);
+  return pstH >= startH || pstH < endH;
+}
 function slope(points) {
-  if (points.length < 2) return null;
   const n = points.length;
+  if (n < 2) return null;
   let sx = 0, sy = 0, sxy = 0, sxx = 0;
   for (const p of points) { sx += p.x; sy += p.y; sxy += p.x*p.y; sxx += p.x*p.x; }
-  const denom = n*sxx - sx*sx;
-  if (denom === 0) return null;
-  return (n*sxy - sx*sy) / denom; // pct per ms
+  const d = n*sxx - sx*sx;
+  return d === 0 ? null : (n*sxy - sx*sy) / d;
+}
+function hoursUntil(cur, target, slopePctPerMs) {
+  if (!slopePctPerMs || slopePctPerMs <= 0) return null;
+  const rem = target - cur;
+  if (rem <= 0) return 0;
+  return rem / slopePctPerMs / 3600000;
 }
 
-// Hours until value reaches target, given current value and slope (pct/ms)
-function hoursUntil(current, target, slopePctPerMs) {
-  if (slopePctPerMs == null || slopePctPerMs <= 0) return null;
-  const remaining = target - current;
-  if (remaining <= 0) return 0;
-  return remaining / slopePctPerMs / 3600000;
-}
-
-// ── Chart ────────────────────────────────────────────────────────────────────
+// ── Chart ─────────────────────────────────────────────────────────────────────
 
 let chart = null;
+let currentThresholds = {};
 
-function buildCodingBands(startMs, endMs) {
-  // Returns array of {x, y} pairs representing coding-window fill at 100
-  // We step through hour by hour and set y=100 during coding windows, null otherwise
-  const pts = [];
-  const step = 15 * 60 * 1000; // 15-min granularity
-  for (let t = startMs; t <= endMs; t += step) {
-    pts.push({ x: t, y: isCodingHour(new Date(t)) ? 100 : null });
-  }
+function buildCodingBands(startMs, endMs, startH, endH) {
+  const pts = [], step = 15 * 60 * 1000;
+  for (let t = startMs; t <= endMs; t += step)
+    pts.push({ x: t, y: isCodingHour(new Date(t), startH, endH) ? 100 : null });
   return pts;
 }
 
-function initChart(labels, fiveH, weekly, startMs, endMs) {
+function renderChart(fiveH, weekly, startMs, endMs, thr) {
   const ctx = document.getElementById('chart').getContext('2d');
   if (chart) chart.destroy();
-
-  const coding = buildCodingBands(startMs, endMs);
+  const startH = thr.coding_start_h ?? 16;
+  const endH   = thr.coding_end_h   ?? 2;
+  const coding = buildCodingBands(startMs, endMs, startH, endH);
 
   chart = new Chart(ctx, {
     type: 'line',
-    data: {
-      datasets: [
-        // Coding window fill (behind everything)
-        {
-          label: 'Coding window',
-          data: coding,
-          borderColor: 'transparent',
-          backgroundColor: 'rgba(100,116,139,0.12)',
-          fill: true,
-          pointRadius: 0,
-          tension: 0,
-          spanGaps: false,
-          order: 10,
-        },
-        // 5h pause threshold
-        {
-          label: '5h pause (75%)',
-          data: [{x: startMs, y: 75}, {x: endMs, y: 75}],
-          borderColor: 'rgba(59,130,246,0.35)',
-          borderDash: [4, 4],
-          borderWidth: 1,
-          pointRadius: 0,
-          fill: false,
-          order: 5,
-        },
-        // Weekly pause threshold
-        {
-          label: 'Weekly pause (65%)',
-          data: [{x: startMs, y: 65}, {x: endMs, y: 65}],
-          borderColor: 'rgba(245,158,11,0.35)',
-          borderDash: [4, 4],
-          borderWidth: 1,
-          pointRadius: 0,
-          fill: false,
-          order: 5,
-        },
-        // Weekly hard stop
-        {
-          label: 'Hard stop (90%)',
-          data: [{x: startMs, y: 90}, {x: endMs, y: 90}],
-          borderColor: 'rgba(239,68,68,0.35)',
-          borderDash: [4, 4],
-          borderWidth: 1,
-          pointRadius: 0,
-          fill: false,
-          order: 5,
-        },
-        // 5h usage
-        {
-          label: '5h usage',
-          data: fiveH,
-          borderColor: '#3b82f6',
-          backgroundColor: 'rgba(59,130,246,0.08)',
-          fill: true,
-          pointRadius: 0,
-          pointHoverRadius: 4,
-          tension: 0.3,
-          borderWidth: 2,
-          order: 1,
-        },
-        // Weekly usage
-        {
-          label: 'Weekly usage',
-          data: weekly,
-          borderColor: '#22c55e',
-          backgroundColor: 'rgba(34,197,94,0.06)',
-          fill: true,
-          pointRadius: 0,
-          pointHoverRadius: 4,
-          tension: 0.3,
-          borderWidth: 2,
-          order: 1,
-        },
-      ],
-    },
+    data: { datasets: [
+      { label:'Coding window', data: coding, borderColor:'transparent', backgroundColor:'rgba(100,116,139,0.1)', fill:true, pointRadius:0, tension:0, spanGaps:false, order:10 },
+      { label:'5h pause',      data:[{x:startMs,y:thr.five_hour_pause_pct??75},{x:endMs,y:thr.five_hour_pause_pct??75}], borderColor:'rgba(59,130,246,0.3)', borderDash:[4,4], borderWidth:1, pointRadius:0, fill:false, order:5 },
+      { label:'Weekly pause',  data:[{x:startMs,y:100-(thr.weekly_reserve_pct??35)},{x:endMs,y:100-(thr.weekly_reserve_pct??35)}], borderColor:'rgba(245,158,11,0.3)', borderDash:[4,4], borderWidth:1, pointRadius:0, fill:false, order:5 },
+      { label:'Hard stop',     data:[{x:startMs,y:thr.weekly_hard_stop_pct??90},{x:endMs,y:thr.weekly_hard_stop_pct??90}], borderColor:'rgba(239,68,68,0.3)', borderDash:[4,4], borderWidth:1, pointRadius:0, fill:false, order:5 },
+      { label:'5h usage',    data:fiveH,  borderColor:'#3b82f6', backgroundColor:'rgba(59,130,246,0.07)', fill:true, pointRadius:0, pointHoverRadius:4, tension:0.3, borderWidth:2, order:1 },
+      { label:'Weekly usage',data:weekly, borderColor:'#22c55e', backgroundColor:'rgba(34,197,94,0.05)',  fill:true, pointRadius:0, pointHoverRadius:4, tension:0.3, borderWidth:2, order:1 },
+    ]},
     options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          backgroundColor: '#1e293b',
-          borderColor: '#334155',
-          borderWidth: 1,
-          titleColor: '#94a3b8',
-          bodyColor: '#e2e8f0',
-          callbacks: {
-            title: items => {
-              const d = new Date(items[0].parsed.x);
-              return d.toLocaleString('en-US', {
-                month:'short', day:'numeric',
-                hour:'2-digit', minute:'2-digit',
-                timeZone:'America/Los_Angeles'
-              }) + ' PST';
-            },
-            label: item => {
-              if (['Coding window','5h pause (75%)','Weekly pause (65%)','Hard stop (90%)'].includes(item.dataset.label)) return null;
-              return ` ${item.dataset.label}: ${item.parsed.y?.toFixed(1)}%`;
-            },
+      responsive:true, maintainAspectRatio:false, animation:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{
+        legend:{display:false},
+        tooltip:{
+          backgroundColor:'#1e293b', borderColor:'#334155', borderWidth:1,
+          titleColor:'#94a3b8', bodyColor:'#e2e8f0',
+          callbacks:{
+            title: items => new Date(items[0].parsed.x).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'America/Los_Angeles'})+' PST',
+            label: item => ['Coding window','5h pause','Weekly pause','Hard stop'].includes(item.dataset.label) ? null : ` ${item.dataset.label}: ${item.parsed.y?.toFixed(1)}%`,
           }
         }
       },
-      scales: {
-        x: {
-          type: 'linear',
-          min: startMs,
-          max: endMs,
-          grid: { color: 'rgba(255,255,255,0.04)' },
-          ticks: {
-            color: '#64748b',
-            maxTicksLimit: 8,
-            callback: v => new Date(v).toLocaleString('en-US', {
-              month:'short', day:'numeric', hour:'2-digit', timeZone:'America/Los_Angeles'
-            }),
-          }
-        },
-        y: {
-          min: 0, max: 100,
-          grid: { color: 'rgba(255,255,255,0.04)' },
-          ticks: { color: '#64748b', callback: v => v + '%' },
-        }
+      scales:{
+        x:{ type:'linear', min:startMs, max:endMs, grid:{color:'rgba(255,255,255,0.04)'}, ticks:{color:'#64748b', maxTicksLimit:8, callback:v=>new Date(v).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',timeZone:'America/Los_Angeles'})} },
+        y:{ min:0, max:100, grid:{color:'rgba(255,255,255,0.04)'}, ticks:{color:'#64748b', callback:v=>v+'%'} },
       }
     }
   });
 }
 
-// ── Predictions ───────────────────────────────────────────────────────────────
-
-function renderPredictions(status, history) {
-  const el = document.getElementById('predictions');
-  const items = [];
-
-  const fiveH  = status.usage?.five_hour_pct;
-  const weekly = status.usage?.weekly_pct;
-  const resets = status.usage?.weekly_resets_at;
-  const t5     = status.thresholds?.five_hour_pause_pct  ?? 75;
-  const tw     = status.thresholds?.weekly_reserve_pct   ?? 35;
-  const ts     = status.thresholds?.weekly_hard_stop_pct ?? 90;
-
-  // Compute slopes from last 6h of history
-  const cutoff = Date.now() - 6 * 3600000;
-  const recent = history.filter(h => new Date(h.bucket).getTime() > cutoff);
-  const pts5h  = recent.map(h => ({ x: new Date(h.bucket).getTime(), y: h.five_hour_pct }));
-  const ptsWk  = recent.map(h => ({ x: new Date(h.bucket).getTime(), y: h.weekly_pct }));
-  const slope5h = slope(pts5h);   // pct/ms
-  const slopeWk = slope(ptsWk);
-
-  // 5h threshold
-  const h5 = hoursUntil(fiveH, t5, slope5h);
-  items.push({
-    icon: '⏱',
-    title: '5h usage hits pause threshold',
-    value: h5 === 0 ? 'Already paused' : h5 ? 'in ~' + fmtHours(h5) : fiveH != null ? `${Math.round(fiveH)}% — healthy` : '—',
-    cls: h5 === 0 ? 'red' : h5 && h5 < 2 ? 'amber' : 'green',
-  });
-
-  // Weekly ceiling (100 - reserve)
-  const ceiling = 100 - tw;
-  const hw = hoursUntil(weekly, ceiling, slopeWk);
-  items.push({
-    icon: '📅',
-    title: `Weekly hits pause ceiling (${ceiling}%)`,
-    value: hw === 0 ? 'Already paused' : hw ? 'in ~' + fmtHours(hw) : weekly != null ? `${Math.round(weekly)}% — healthy` : '—',
-    cls: hw === 0 ? 'red' : hw && hw < 12 ? 'amber' : 'green',
-  });
-
-  // Weekly hard stop
-  const hws = hoursUntil(weekly, ts, slopeWk);
-  items.push({
-    icon: '🛑',
-    title: `Weekly hard stop (${ts}%)`,
-    value: hws === 0 ? 'Already stopped' : hws ? 'in ~' + fmtHours(hws) : weekly != null ? `${Math.round(weekly)}% — safe` : '—',
-    cls: hws === 0 ? 'red' : hws && hws < 24 ? 'amber' : 'green',
-  });
-
-  // Weekly reset date
-  const resetStr = resets
-    ? new Date(resets).toLocaleString('en-US', {
-        month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', timeZone:'America/Los_Angeles'
-      }) + ' PST'
-    : '—';
-  items.push({
-    icon: '🔄',
-    title: 'Weekly budget resets',
-    value: resetStr,
-    cls: 'green',
-  });
-
-  el.innerHTML = items.map(i => `
-    <div class="pred-item">
-      <div class="pred-icon">${i.icon}</div>
-      <div>
-        <div class="pred-title">${i.title}</div>
-        <div class="pred-value ${i.cls}">${i.value}</div>
-      </div>
-    </div>
-  `).join('');
-}
-
 // ── Status cards ──────────────────────────────────────────────────────────────
 
-function renderStatus(status) {
+function renderStatus(s) {
   const dot   = document.getElementById('status-dot');
   const label = document.getElementById('status-label');
 
-  if (status.window === 'coding') {
-    dot.className = 'dot amber'; label.textContent = 'Coding window';
-  } else if (!status.ok) {
-    dot.className = 'dot red';   label.textContent = 'Paused';
-  } else {
-    dot.className = 'dot green'; label.textContent = 'Idle · running on max';
-  }
+  if (s.window === 'coding') { dot.className='dot amber'; label.textContent='Coding window'; }
+  else if (!s.ok)            { dot.className='dot red';   label.textContent='Paused'; }
+  else                       { dot.className='dot green'; label.textContent='Idle · max'; }
 
   // Window card
-  const windowEl = document.getElementById('card-window');
-  const windowSub = document.getElementById('card-window-sub');
-  if (status.window === 'coding') {
-    windowEl.textContent = 'CODING';
-    windowEl.style.color = 'var(--amber)';
-    const m = Math.round(status.next_idle_in_s / 60);
-    windowSub.textContent = `idle in ${m >= 60 ? Math.floor(m/60)+'h '+m%60+'m' : m+'m'}`;
+  const wEl  = document.getElementById('card-window');
+  const wSub = document.getElementById('card-window-sub');
+  if (s.window === 'coding') {
+    wEl.textContent = 'CODING'; wEl.style.color = 'var(--amber)';
+    const m = Math.round(s.next_idle_in_s / 60);
+    wSub.textContent = `idle in ${m>=60?Math.floor(m/60)+'h '+m%60+'m':m+'m'}`;
   } else {
-    windowEl.textContent = 'IDLE';
-    windowEl.style.color = 'var(--green)';
-    windowSub.textContent = status.reason || '';
+    wEl.textContent = 'IDLE'; wEl.style.color = 'var(--green)';
+    wSub.textContent = s.reason || '';
   }
 
-  // 5h card
-  const fiveH = status.usage?.five_hour_pct;
-  const t5    = status.thresholds?.five_hour_pause_pct ?? 75;
-  document.getElementById('card-5h').textContent = fmtPct(fiveH);
-  const bar5  = document.getElementById('bar-5h');
-  bar5.style.width = Math.min(fiveH ?? 0, 100) + '%';
-  bar5.className = 'bar-fill ' + barColor(fiveH ?? 0, t5, 100);
-  document.getElementById('marker-5h').style.left = t5 + '%';
+  // Stale badge
+  const stale = s.usage?.stale;
+  document.getElementById('stale-badge').style.display = stale ? 'inline-block' : 'none';
 
-  // Weekly card
-  const weekly = status.usage?.weekly_pct;
-  const tw     = status.thresholds?.weekly_reserve_pct   ?? 35;
-  const ts     = status.thresholds?.weekly_hard_stop_pct ?? 90;
+  // 5h
+  const t5  = s.thresholds?.five_hour_pause_pct ?? 75;
+  const ts  = s.thresholds?.weekly_hard_stop_pct ?? 90;
+  const tw  = s.thresholds?.weekly_reserve_pct ?? 35;
   const ceiling = 100 - tw;
-  document.getElementById('card-weekly').textContent = fmtPct(weekly);
-  const barW  = document.getElementById('bar-weekly');
-  barW.style.width = Math.min(weekly ?? 0, 100) + '%';
-  barW.className = 'bar-fill ' + barColor(weekly ?? 0, ceiling, ts);
-  document.getElementById('marker-weekly-pause').style.left = ceiling + '%';
-  document.getElementById('marker-weekly-stop').style.left  = ts + '%';
+  const age = s.usage?.cache_age_s;
+  const fiveH = s.usage?.five_hour_pct;
+  document.getElementById('card-5h').textContent = fmtPct(fiveH);
+  const b5 = document.getElementById('bar-5h');
+  b5.style.width = Math.min(fiveH??0,100)+'%';
+  b5.className = 'bar-fill ' + barColor(fiveH??0, t5, 100);
+  document.getElementById('marker-5h').style.left = t5+'%';
+  document.getElementById('card-5h-sub').textContent =
+    `pause at ${t5}%` + (age != null ? ` · cache ${Math.round(age/60)}m old` : '');
 
-  // Next milestone card
+  // Weekly
+  const weekly = s.usage?.weekly_pct;
+  document.getElementById('card-weekly').textContent = fmtPct(weekly);
+  const bw = document.getElementById('bar-weekly');
+  bw.style.width = Math.min(weekly??0,100)+'%';
+  bw.className = 'bar-fill ' + barColor(weekly??0, ceiling, ts);
+  document.getElementById('marker-weekly-pause').style.left = ceiling+'%';
+  document.getElementById('marker-weekly-stop').style.left  = ts+'%';
+  document.getElementById('card-weekly-sub').textContent = `pause at ${ceiling}% · stop at ${ts}%`;
+
+  // Next milestone
   const nextEl  = document.getElementById('card-next');
   const nextSub = document.getElementById('card-next-sub');
-  if (status.window === 'coding') {
-    const secs = status.next_idle_in_s;
-    const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60);
-    nextEl.textContent = h > 0 ? `${h}h ${m}m` : `${m}m`;
+  if (s.window === 'coding') {
+    const h = Math.floor(s.next_idle_in_s/3600), m = Math.floor((s.next_idle_in_s%3600)/60);
+    nextEl.textContent = h>0?`${h}h ${m}m`:`${m}m`;
     nextSub.textContent = 'until idle window';
-  } else if (status.usage?.weekly_resets_at) {
-    const d = new Date(status.usage.weekly_resets_at);
-    nextEl.textContent = d.toLocaleDateString('en-US', {month:'short', day:'numeric'});
-    nextSub.textContent = d.toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit', timeZone:'America/Los_Angeles'}) + ' PST · weekly reset';
-  } else {
-    nextEl.textContent = '—'; nextSub.textContent = '';
+  } else if (s.usage?.weekly_resets_at) {
+    const d = new Date(s.usage.weekly_resets_at);
+    nextEl.textContent = d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    nextSub.textContent = d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',timeZone:'America/Los_Angeles'})+' PST · weekly reset';
+  } else { nextEl.textContent='—'; nextSub.textContent=''; }
+
+  currentThresholds = s.thresholds || {};
+}
+
+// ── Predictions ───────────────────────────────────────────────────────────────
+
+function renderPredictions(status, history) {
+  const el  = document.getElementById('predictions');
+  const thr = status.thresholds || {};
+  const fiveH  = status.usage?.five_hour_pct;
+  const weekly = status.usage?.weekly_pct;
+  const resets = status.usage?.weekly_resets_at;
+  const t5 = thr.five_hour_pause_pct  ?? 75;
+  const tw = thr.weekly_reserve_pct   ?? 35;
+  const ts = thr.weekly_hard_stop_pct ?? 90;
+
+  const cutoff = Date.now() - 6*3600000;
+  const recent = history.filter(h => new Date(h.bucket).getTime() > cutoff);
+  const s5  = slope(recent.map(h=>({x:new Date(h.bucket).getTime(), y:h.five_hour_pct})));
+  const sWk = slope(recent.map(h=>({x:new Date(h.bucket).getTime(), y:h.weekly_pct})));
+
+  const h5   = hoursUntil(fiveH,  t5,       s5);
+  const hw   = hoursUntil(weekly, 100-tw,   sWk);
+  const hws  = hoursUntil(weekly, ts,       sWk);
+
+  const resetStr = resets ? new Date(resets).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'America/Los_Angeles'})+' PST' : '—';
+
+  const items = [
+    { icon:'⏱', title:`5h hits pause (${t5}%)`,       value: h5===0?'Already paused':h5?'in ~'+fmtHours(h5):`${Math.round(fiveH??0)}% — healthy`,  cls: h5===0?'red':h5&&h5<2?'amber':'green' },
+    { icon:'📅', title:`Weekly hits pause (${100-tw}%)`, value: hw===0?'Already paused':hw?'in ~'+fmtHours(hw):`${Math.round(weekly??0)}% — healthy`, cls: hw===0?'red':hw&&hw<12?'amber':'green' },
+    { icon:'🛑', title:`Weekly hard stop (${ts}%)`,     value: hws===0?'Already stopped':hws?'in ~'+fmtHours(hws):`${Math.round(weekly??0)}% — safe`, cls: hws===0?'red':hws&&hws<24?'amber':'green' },
+    { icon:'🔄', title:'Weekly budget resets',           value: resetStr, cls:'green' },
+  ];
+  el.innerHTML = items.map(i=>`
+    <div class="pred-item">
+      <div class="pred-icon">${i.icon}</div>
+      <div><div class="pred-title">${i.title}</div><div class="pred-value ${i.cls}">${i.value}</div></div>
+    </div>`).join('');
+}
+
+// ── Settings modal ────────────────────────────────────────────────────────────
+
+const SETTING_KEYS = ['CODING_START_H','CODING_END_H','FIVE_HOUR_PAUSE_PCT','WEEKLY_RESERVE_PCT','WEEKLY_HARD_STOP_PCT','POLL_INTERVAL_MIN','CACHE_STALE_MIN'];
+
+async function openSettings() {
+  const res = await fetch('/settings');
+  const cfg = await res.json();
+  for (const k of SETTING_KEYS) {
+    const el = document.getElementById('s-'+k);
+    if (el) el.value = cfg[k] ?? '';
+  }
+  document.getElementById('save-status').style.display = 'none';
+  document.getElementById('modal-overlay').classList.add('open');
+}
+
+function closeSettings() {
+  document.getElementById('modal-overlay').classList.remove('open');
+}
+
+function maybeCloseModal(e) {
+  if (e.target === document.getElementById('modal-overlay')) closeSettings();
+}
+
+async function saveSettings() {
+  const body = {};
+  for (const k of SETTING_KEYS) {
+    const el = document.getElementById('s-'+k);
+    if (el) body[k] = el.value;
+  }
+  const res = await fetch('/settings', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+  if (res.ok) {
+    const ss = document.getElementById('save-status');
+    ss.style.display = 'block';
+    setTimeout(() => { ss.style.display='none'; closeSettings(); refresh(); }, 1000);
   }
 }
 
-// ── Main fetch loop ───────────────────────────────────────────────────────────
+// ── Main refresh ──────────────────────────────────────────────────────────────
 
 async function refresh() {
   try {
-    const [statusRes, historyRes] = await Promise.all([
-      fetch('/status'),
-      fetch('/history?hours=48'),
-    ]);
+    const [statusRes, historyRes] = await Promise.all([fetch('/status'), fetch('/history?hours=48')]);
     const status  = await statusRes.json();
     const history = (await historyRes.json()).history ?? [];
 
     renderStatus(status);
     renderPredictions(status, history);
 
-    // Chart
-    const now = Date.now();
-    const start = now - 48 * 3600000;
-    const fiveH  = history.map(h => ({ x: new Date(h.bucket).getTime(), y: h.five_hour_pct }));
-    const weekly = history.map(h => ({ x: new Date(h.bucket).getTime(), y: h.weekly_pct }));
-    // Append current reading
-    if (status.usage?.five_hour_pct != null) fiveH.push({ x: now, y: status.usage.five_hour_pct });
-    if (status.usage?.weekly_pct    != null) weekly.push({ x: now, y: status.usage.weekly_pct });
-    initChart(null, fiveH, weekly, start, now);
+    const now = Date.now(), start = now - 48*3600000;
+    const fiveH  = history.map(h=>({x:new Date(h.bucket).getTime(), y:h.five_hour_pct}));
+    const weekly = history.map(h=>({x:new Date(h.bucket).getTime(), y:h.weekly_pct}));
+    if (status.usage?.five_hour_pct != null) fiveH.push({x:now, y:status.usage.five_hour_pct});
+    if (status.usage?.weekly_pct    != null) weekly.push({x:now, y:status.usage.weekly_pct});
+    renderChart(fiveH, weekly, start, now, status.thresholds || {});
 
     document.getElementById('refresh-ts').textContent =
-      'updated ' + new Date().toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
-  } catch (e) {
-    console.error('refresh failed', e);
-  }
+      'updated ' + new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  } catch(e) { console.error('refresh failed', e); }
 }
 
-refresh();
-setInterval(refresh, 60000);
+async function init() {
+  // Trigger immediate sync before first paint so data is fresh
+  await fetch('/sync', { method: 'POST' }).catch(() => {});
+  await refresh();
+  setInterval(refresh, 60000);
+}
+
+init();
 </script>
 </body>
 </html>

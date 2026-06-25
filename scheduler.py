@@ -1,4 +1,4 @@
-"""Time gating and budget-aware provider routing for Claude Max plan."""
+"""Time gating and budget-aware routing for Claude Max plan."""
 from __future__ import annotations
 
 import json
@@ -12,26 +12,15 @@ logger = logging.getLogger(__name__)
 
 PST = ZoneInfo("America/Los_Angeles")
 
-# ── Config (all env-overridable) ──────────────────────────────────────────────
-
-CODING_START_H       = int(os.environ.get("CODING_START_H",          "16"))   # 4pm PST
-CODING_END_H         = int(os.environ.get("CODING_END_H",            "2"))    # 2am PST
-FIVE_HOUR_THROTTLE   = float(os.environ.get("FIVE_HOUR_THROTTLE_PCT","75"))   # pause when hit
-WEEKLY_RESERVE_PCT   = float(os.environ.get("WEEKLY_RESERVE_PCT",    "35"))   # keep for coding
-WEEKLY_HARD_STOP_PCT = float(os.environ.get("WEEKLY_HARD_STOP_PCT",  "90"))   # hard stop
-
 USAGE_CACHE = Path(os.environ.get(
     "CLAUDE_USAGE_CACHE",
     Path.home() / ".claude" / ".usage_cache.json",
 ))
-# Cache is written by Claude Code CLI on every status tick.
-# Treat as stale if older than this many seconds (no active session).
-CACHE_STALE_S = int(os.environ.get("CACHE_STALE_S", "1800"))  # 30 min
 
 
 # ── Usage reading ─────────────────────────────────────────────────────────────
 
-def read_usage() -> dict:
+def read_usage(cache_stale_s: float = 1800) -> dict:
     """Read current Claude Max usage from the Claude Code CLI cache file.
 
     Returns dict with: five_hour_pct, weekly_pct, weekly_resets_at, age_s, stale.
@@ -45,9 +34,9 @@ def read_usage() -> dict:
         data = json.loads(USAGE_CACHE.read_text())
         rl = data.get("rate_limits", {})
 
-        five_h_pct   = rl.get("five_hour",  {}).get("used_percentage")
-        weekly_pct   = rl.get("seven_day",  {}).get("used_percentage")
-        resets_epoch = rl.get("seven_day",  {}).get("resets_at")
+        five_h_pct   = rl.get("five_hour", {}).get("used_percentage")
+        weekly_pct   = rl.get("seven_day", {}).get("used_percentage")
+        resets_epoch = rl.get("seven_day", {}).get("resets_at")
 
         if five_h_pct is None or weekly_pct is None:
             return {}
@@ -61,7 +50,7 @@ def read_usage() -> dict:
             "weekly_pct":       float(weekly_pct),
             "weekly_resets_at": resets_at,
             "age_s":            age_s,
-            "stale":            age_s > CACHE_STALE_S,
+            "stale":            age_s > cache_stale_s,
         }
     except Exception as e:
         logger.warning(f"[scheduler] failed to read usage cache: {e}")
@@ -70,77 +59,77 @@ def read_usage() -> dict:
 
 # ── Time gate ─────────────────────────────────────────────────────────────────
 
-def is_coding_window(now: datetime | None = None) -> bool:
-    """True if current PST time is inside the coding window (4pm – 2am)."""
+def is_coding_window(now: datetime | None = None, start_h: int = 16, end_h: int = 2) -> bool:
+    """True if current PST time is inside the coding window."""
     pst = (now or datetime.now(timezone.utc)).astimezone(PST)
     h = pst.hour
-    return h >= CODING_START_H or h < CODING_END_H
+    return h >= start_h or h < end_h
 
 
-def next_idle_in_s(now: datetime | None = None) -> int:
-    """Seconds until the idle window opens (2am PST). 0 if already idle."""
-    if not is_coding_window(now):
+def next_idle_in_s(now: datetime | None = None, start_h: int = 16, end_h: int = 2) -> int:
+    """Seconds until the idle window opens. 0 if already idle."""
+    if not is_coding_window(now, start_h, end_h):
         return 0
     pst = (now or datetime.now(timezone.utc)).astimezone(PST)
     h, m, s = pst.hour, pst.minute, pst.second
-    if h >= CODING_START_H:
-        remaining = (24 - h + CODING_END_H) * 3600 - m * 60 - s
+    if h >= start_h:
+        remaining = (24 - h + end_h) * 3600 - m * 60 - s
     else:
-        remaining = (CODING_END_H - h) * 3600 - m * 60 - s
+        remaining = (end_h - h) * 3600 - m * 60 - s
     return max(60, remaining)
 
 
 # ── Gate check ────────────────────────────────────────────────────────────────
 
-def can_run(usage: dict | None = None) -> dict:
-    """Top-level decision: should a background job run now?
+def can_run(usage: dict | None = None, cfg: dict | None = None) -> dict:
+    """Should a background job run now?
 
-    Returns:
-      ok        — True if a job may start now (always on 'max' when ok)
-      provider  — 'max' | None
-      reason    — human-readable explanation
+    cfg keys: CODING_START_H, CODING_END_H, FIVE_HOUR_PAUSE_PCT,
+              WEEKLY_RESERVE_PCT, WEEKLY_HARD_STOP_PCT, CACHE_STALE_MIN
     """
+    from db import get_settings
+    s = cfg or get_settings()
+
+    start_h   = int(s.get("CODING_START_H",      16))
+    end_h     = int(s.get("CODING_END_H",         2))
+    five_h_t  = float(s.get("FIVE_HOUR_PAUSE_PCT", 75))
+    reserve   = float(s.get("WEEKLY_RESERVE_PCT",  35))
+    hard_stop = float(s.get("WEEKLY_HARD_STOP_PCT",90))
+    stale_s   = float(s.get("CACHE_STALE_MIN",     30)) * 60
+
     now = datetime.now(timezone.utc)
 
-    if is_coding_window(now):
-        idle_in = next_idle_in_s(now)
+    if is_coding_window(now, start_h, end_h):
+        idle_in = next_idle_in_s(now, start_h, end_h)
         return {
             "ok": False,
             "provider": None,
-            "reason": f"coding window (4pm–2am PST); idle in {idle_in // 60}m",
+            "reason": f"coding window ({start_h}:00–{end_h}:00 PST); idle in {idle_in // 60}m",
             "next_idle_in_s": idle_in,
         }
 
-    u = usage if usage is not None else read_usage()
+    u = usage if usage is not None else read_usage(stale_s)
 
     if u and not u.get("stale"):
         five_h  = u["five_hour_pct"]
         weekly  = u["weekly_pct"]
-        ceiling = 100 - WEEKLY_RESERVE_PCT
+        ceiling = 100 - reserve
 
-        if five_h >= FIVE_HOUR_THROTTLE:
+        if five_h >= five_h_t:
             return {
-                "ok": False,
-                "provider": None,
-                "reason": f"5h={five_h:.0f}% ≥ {FIVE_HOUR_THROTTLE:.0f}% — pausing to protect coding budget",
-                "next_idle_in_s": 0,
+                "ok": False, "provider": None, "next_idle_in_s": 0,
+                "reason": f"5h={five_h:.0f}% ≥ {five_h_t:.0f}% — pausing to protect coding budget",
             }
-
-        if weekly >= WEEKLY_HARD_STOP_PCT:
+        if weekly >= hard_stop:
             resets = u.get("weekly_resets_at", "?")
             return {
-                "ok": False,
-                "provider": None,
-                "reason": f"weekly={weekly:.0f}% ≥ {WEEKLY_HARD_STOP_PCT:.0f}% — hard stop until {resets}",
-                "next_idle_in_s": 0,
+                "ok": False, "provider": None, "next_idle_in_s": 0,
+                "reason": f"weekly={weekly:.0f}% ≥ {hard_stop:.0f}% — hard stop until {resets}",
             }
-
         if weekly >= ceiling:
             return {
-                "ok": False,
-                "provider": None,
-                "reason": f"weekly={weekly:.0f}% ≥ {ceiling:.0f}% — reserving {WEEKLY_RESERVE_PCT:.0f}% for coding",
-                "next_idle_in_s": 0,
+                "ok": False, "provider": None, "next_idle_in_s": 0,
+                "reason": f"weekly={weekly:.0f}% ≥ {ceiling:.0f}% — reserving {reserve:.0f}% for coding",
             }
 
     return {

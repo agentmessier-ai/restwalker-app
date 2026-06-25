@@ -1,4 +1,4 @@
-"""SQLite store for cc-provider: usage history only."""
+"""SQLite store for cc-provider: usage history + settings."""
 from __future__ import annotations
 
 import sqlite3
@@ -10,6 +10,17 @@ DB_PATH = Path(os.environ.get(
     "CC_PROVIDER_DB",
     Path.home() / ".cc-provider" / "cc-provider.db",
 ))
+
+# Defaults — env vars win over these; DB settings win over env vars.
+SETTING_DEFAULTS: dict[str, str] = {
+    "CODING_START_H":       os.environ.get("CODING_START_H",        "16"),
+    "CODING_END_H":         os.environ.get("CODING_END_H",          "2"),
+    "FIVE_HOUR_PAUSE_PCT":  os.environ.get("FIVE_HOUR_THROTTLE_PCT","75"),
+    "WEEKLY_RESERVE_PCT":   os.environ.get("WEEKLY_RESERVE_PCT",    "35"),
+    "WEEKLY_HARD_STOP_PCT": os.environ.get("WEEKLY_HARD_STOP_PCT",  "90"),
+    "POLL_INTERVAL_MIN":    os.environ.get("POLL_INTERVAL_MIN",     "5"),
+    "CACHE_STALE_MIN":      os.environ.get("CACHE_STALE_MIN",       "30"),
+}
 
 
 def _conn() -> sqlite3.Connection:
@@ -45,12 +56,50 @@ def migrate() -> None:
         );
         CREATE INDEX IF NOT EXISTS usage_snapshots_recorded_at
             ON usage_snapshots(recorded_at DESC);
+
+        CREATE TABLE IF NOT EXISTS settings (
+            key        TEXT PRIMARY KEY,
+            value      TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+        );
         """)
+        # Seed defaults (only inserts if key doesn't exist yet)
+        for k, v in SETTING_DEFAULTS.items():
+            con.execute(
+                "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (k, v)
+            )
+        # Prune snapshots older than 14 days
         con.execute(
             "DELETE FROM usage_snapshots "
             "WHERE recorded_at < strftime('%Y-%m-%dT%H:%M:%SZ','now','-14 days')"
         )
 
+
+# ── Settings ──────────────────────────────────────────────────────────────────
+
+def get_settings() -> dict[str, str]:
+    con = _conn()
+    rows = con.execute("SELECT key, value FROM settings").fetchall()
+    con.close()
+    result = dict(SETTING_DEFAULTS)
+    result.update({r["key"]: r["value"] for r in rows})
+    return result
+
+
+def update_settings(updates: dict[str, str]) -> None:
+    with tx() as con:
+        for k, v in updates.items():
+            if k not in SETTING_DEFAULTS:
+                raise ValueError(f"Unknown setting: {k}")
+            con.execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value, "
+                "updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+                (k, str(v)),
+            )
+
+
+# ── Usage snapshots ───────────────────────────────────────────────────────────
 
 def record_snapshot(five_hour_pct: float, weekly_pct: float, weekly_resets_at: str | None) -> None:
     with tx() as con:
