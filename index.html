@@ -78,10 +78,6 @@
   td { padding: 9px 12px; border-bottom: 1px solid var(--border); font-family: var(--mono); }
   tr:last-child td { border-bottom: none; }
   tr:hover td { background: rgba(255,255,255,0.02); }
-  .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
-  .tag.max  { background: rgba(59,130,246,0.15); color: #93c5fd; }
-  .empty { color: var(--muted); font-size: 13px; padding: 20px 12px; }
-
   /* ── Footer ── */
   footer { text-align: center; font-size: 12px; color: var(--muted); padding: 16px; }
 
@@ -161,16 +157,6 @@
     <div class="predictions" id="predictions"></div>
   </div>
 
-  <!-- Jobs -->
-  <div class="section">
-    <h2>Recent Jobs</h2>
-    <table>
-      <thead><tr>
-        <th>Project</th><th>Provider</th><th>Started</th><th>Duration</th><th>Notes</th>
-      </tr></thead>
-      <tbody id="jobs-body"><tr><td colspan="5" class="empty">No jobs yet.</td></tr></tbody>
-    </table>
-  </div>
 
 </main>
 <footer id="footer">refreshing every 60s</footer>
@@ -456,25 +442,6 @@ function renderPredictions(status, history) {
   `).join('');
 }
 
-// ── Jobs ──────────────────────────────────────────────────────────────────────
-
-function renderJobs(jobs) {
-  const tbody = document.getElementById('jobs-body');
-  if (!jobs.length) {
-    tbody.innerHTML = '<tr><td colspan="5" class="empty">No jobs yet.</td></tr>';
-    return;
-  }
-  tbody.innerHTML = jobs.map(j => `
-    <tr>
-      <td>${j.project}</td>
-      <td><span class="tag ${j.provider}">${j.provider}</span></td>
-      <td style="color:var(--muted)">${fmtTs(j.started_at)}</td>
-      <td>${fmtDur(j.duration_s)}</td>
-      <td style="color:var(--muted);font-size:12px">${j.notes || ''}</td>
-    </tr>
-  `).join('');
-}
-
 // ── Status cards ──────────────────────────────────────────────────────────────
 
 function renderStatus(status) {
@@ -545,18 +512,15 @@ function renderStatus(status) {
 
 async function refresh() {
   try {
-    const [statusRes, historyRes, jobsRes] = await Promise.all([
+    const [statusRes, historyRes] = await Promise.all([
       fetch('/status'),
       fetch('/history?hours=48'),
-      fetch('/jobs?limit=20'),
     ]);
     const status  = await statusRes.json();
     const history = (await historyRes.json()).history ?? [];
-    const jobs    = (await jobsRes.json()).jobs ?? [];
 
     renderStatus(status);
     renderPredictions(status, history);
-    renderJobs(jobs);
 
     // Chart
     const now = Date.now();

@@ -1,9 +1,8 @@
-"""SQLite store for cc-provider: usage history and job accounting."""
+"""SQLite store for cc-provider: usage history only."""
 from __future__ import annotations
 
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
 from pathlib import Path
 import os
 
@@ -35,30 +34,18 @@ def tx():
 
 
 def migrate() -> None:
-    """Create tables if they don't exist."""
     with tx() as con:
         con.executescript("""
         CREATE TABLE IF NOT EXISTS usage_snapshots (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            five_hour_pct REAL    NOT NULL,
-            weekly_pct    REAL    NOT NULL,
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            five_hour_pct    REAL    NOT NULL,
+            weekly_pct       REAL    NOT NULL,
             weekly_resets_at TEXT,
-            recorded_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            recorded_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
         );
         CREATE INDEX IF NOT EXISTS usage_snapshots_recorded_at
             ON usage_snapshots(recorded_at DESC);
-
-        CREATE TABLE IF NOT EXISTS job_log (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            project     TEXT    NOT NULL,
-            provider    TEXT    NOT NULL,
-            started_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
-            finished_at TEXT,
-            duration_s  REAL,
-            notes       TEXT
-        );
         """)
-        # Prune usage_snapshots older than 14 days
         con.execute(
             "DELETE FROM usage_snapshots "
             "WHERE recorded_at < strftime('%Y-%m-%dT%H:%M:%SZ','now','-14 days')"
@@ -83,47 +70,20 @@ def latest_snapshot() -> dict | None:
 
 
 def usage_history(hours: int = 48) -> list[dict]:
-    """Return bucketed (15-min) usage snapshots for the last N hours."""
+    """Return 15-min bucketed usage snapshots for the last N hours."""
     con = _conn()
     rows = con.execute("""
         SELECT
             strftime('%Y-%m-%dT%H:', recorded_at) ||
                 printf('%02d', (CAST(strftime('%M', recorded_at) AS INTEGER) / 15) * 15) ||
                 ':00Z' AS bucket,
-            ROUND(AVG(five_hour_pct), 1)  AS five_hour_pct,
-            ROUND(AVG(weekly_pct), 1)     AS weekly_pct,
-            COUNT(*)                       AS samples
+            ROUND(AVG(five_hour_pct), 1) AS five_hour_pct,
+            ROUND(AVG(weekly_pct), 1)    AS weekly_pct,
+            COUNT(*)                      AS samples
         FROM usage_snapshots
         WHERE recorded_at >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ? || ' hours')
         GROUP BY bucket
         ORDER BY bucket ASC
     """, (f"-{hours}",)).fetchall()
-    con.close()
-    return [dict(r) for r in rows]
-
-
-def log_job_start(project: str, provider: str) -> int:
-    with tx() as con:
-        cur = con.execute(
-            "INSERT INTO job_log (project, provider) VALUES (?,?)",
-            (project, provider),
-        )
-        return cur.lastrowid
-
-
-def log_job_finish(job_id: int, duration_s: float, notes: str = "") -> None:
-    with tx() as con:
-        con.execute(
-            "UPDATE job_log SET finished_at=strftime('%Y-%m-%dT%H:%M:%SZ','now'), "
-            "duration_s=?, notes=? WHERE id=?",
-            (duration_s, notes, job_id),
-        )
-
-
-def recent_job_log(limit: int = 20) -> list[dict]:
-    con = _conn()
-    rows = con.execute(
-        "SELECT * FROM job_log ORDER BY started_at DESC LIMIT ?", (limit,)
-    ).fetchall()
     con.close()
     return [dict(r) for r in rows]
