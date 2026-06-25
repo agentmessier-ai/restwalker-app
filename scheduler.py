@@ -116,11 +116,36 @@ def _read_usage_from_file(cache_stale_s: float = 1800) -> dict:
         return {}
 
 
-def read_usage(cache_stale_s: float = 1800) -> dict:
-    """Return usage data. Tries live API first, falls back to .usage_cache.json."""
+# ── In-memory cache ───────────────────────────────────────────────────────────
+# Prevents hammering the API on every /status request or watcher event.
+
+_mem_cache: dict = {}
+_mem_cache_ts: float = 0.0
+MEM_CACHE_TTL_S: float = 300.0   # only call the API every 5 min max
+
+
+def read_usage(cache_stale_s: float = 1800, force_refresh: bool = False) -> dict:
+    """Return usage data with in-memory TTL.
+
+    Calls the live API at most every MEM_CACHE_TTL_S seconds.
+    Falls back to .usage_cache.json if API is unavailable.
+    Pass force_refresh=True to bypass the in-memory TTL (used by /sync).
+    """
+    global _mem_cache, _mem_cache_ts
+    import time
+    now = time.monotonic()
+
+    if not force_refresh and _mem_cache and (now - _mem_cache_ts) < MEM_CACHE_TTL_S:
+        return _mem_cache
+
     usage = fetch_usage_from_api()
     if usage:
+        _mem_cache = usage
+        _mem_cache_ts = now
         return usage
+
+    # API failed — fall back to file, but don't cache the fallback so we
+    # retry the API on the next call.
     return _read_usage_from_file(cache_stale_s)
 
 

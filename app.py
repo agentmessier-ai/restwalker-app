@@ -21,17 +21,14 @@ logger = logging.getLogger(__name__)
 
 # ── Sync helper ───────────────────────────────────────────────────────────────
 
-def _do_sync() -> dict:
-    """Read .usage_cache.json immediately and write to DB if fresh."""
+def _do_sync(force_refresh: bool = False) -> dict:
+    """Fetch usage (force_refresh bypasses in-memory TTL) and write to DB if fresh."""
     cfg = db.get_settings()
     stale_s = float(cfg.get("CACHE_STALE_MIN", 30)) * 60
-    usage = scheduler.read_usage(stale_s)
+    usage = scheduler.read_usage(stale_s, force_refresh=force_refresh)
     if usage and not usage.get("stale"):
         db.record_snapshot(usage["five_hour_pct"], usage["weekly_pct"], usage.get("weekly_resets_at"))
-        logger.info(f"[sync] 5h={usage['five_hour_pct']:.1f}% weekly={usage['weekly_pct']:.1f}%")
-    else:
-        age = usage.get("age_s", -1) if usage else -1
-        logger.debug(f"[sync] cache stale (age={age:.0f}s) — skipping record")
+        logger.info(f"[sync] 5h={usage['five_hour_pct']:.1f}% weekly={usage['weekly_pct']:.1f}% source={usage.get('source')}")
     return usage
 
 
@@ -73,11 +70,10 @@ async def _background_watcher():
     fallback_s = float(cfg.get("POLL_INTERVAL_MIN", 5)) * 60
     try:
         while True:
-            # Periodic sweep — catches cases where FSEvents missed a write
             await asyncio.sleep(fallback_s)
             cfg = db.get_settings()
             fallback_s = float(cfg.get("POLL_INTERVAL_MIN", 5)) * 60
-            _do_sync()
+            _do_sync(force_refresh=True)   # periodic poll always calls API fresh
     finally:
         observer.stop()
         observer.join()
@@ -105,8 +101,13 @@ app = FastAPI(title="cc-provider", version="1.0.0", lifespan=lifespan)
 
 @app.post("/sync")
 def sync():
-    """Immediately read .usage_cache.json and write to DB. Called on page open."""
-    usage = _do_sync()
+    """Force a fresh API call and write to DB. Called by UI on page open."""
+    cfg = db.get_settings()
+    stale_s = float(cfg.get("CACHE_STALE_MIN", 30)) * 60
+    usage = scheduler.read_usage(stale_s, force_refresh=True)
+    if usage and not usage.get("stale"):
+        db.record_snapshot(usage["five_hour_pct"], usage["weekly_pct"], usage.get("weekly_resets_at"))
+        logger.info(f"[sync] 5h={usage['five_hour_pct']:.1f}% weekly={usage['weekly_pct']:.1f}% source={usage.get('source')}")
     return {"ok": True, "stale": usage.get("stale", True) if usage else True}
 
 
