@@ -207,7 +207,8 @@
     <textarea id="q-desc" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-family:inherit;font-size:13px;resize:vertical;min-height:64px;box-sizing:border-box" placeholder="What should Claude do overnight?&#10;e.g. Add integration tests for the ledger service in ~/dev/agentnet"></textarea>
     <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
       <span style="color:var(--muted);white-space:nowrap;font-size:12px">cwd:</span>
-      <input type="text" id="q-cwd" style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-family:inherit;font-size:13px" placeholder="~/dev/myproject (blank = home)">
+      <input type="text" id="q-cwd" list="q-cwd-list" style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-family:inherit;font-size:13px" placeholder="project directory (or pick from list)">
+      <datalist id="q-cwd-list"></datalist>
       <select id="q-model" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-family:inherit;font-size:12px;cursor:pointer">
         <option value="claude-sonnet-4-6">Sonnet 4.6</option>
       </select>
@@ -679,6 +680,13 @@ async function init() {
 
 // ── Queue tab ──────────────────────────────────────────────────────────────────
 
+async function loadProjects() {
+  const data = await fetch('/projects').then(r => r.json()).catch(() => null)
+  if (!data?.projects?.length) return
+  const dl = document.getElementById('q-cwd-list')
+  dl.innerHTML = data.projects.map(p => `<option value="${p.cwd}">`).join('')
+}
+
 async function loadModels() {
   const sel = document.getElementById('q-model')
   const current = sel.value
@@ -701,7 +709,7 @@ function switchTab(tab) {
   document.getElementById('tab-queue').style.cssText = tab === 'queue'
     ? 'background:var(--accent);color:white;border:none;border-radius:6px;padding:5px 10px;cursor:pointer;font-family:inherit;font-size:12px'
     : 'background:var(--card);color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;font-family:inherit;font-size:12px'
-  if (tab === 'queue') { loadModels(); refreshQueue() }
+  if (tab === 'queue') { loadModels(); loadProjects(); refreshQueue() }
 }
 
 function qTimeSince(iso) {

@@ -4,7 +4,7 @@ import chokidar from 'chokidar'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { homedir } from 'os'
-import { createWriteStream } from 'fs'
+import { createWriteStream, readdirSync, readFileSync, statSync, existsSync } from 'fs'
 
 import * as db from './db.js'
 import * as scheduler from './scheduler.js'
@@ -139,6 +139,57 @@ app.post('/settings', async (req, reply) => {
     return { ok: true, settings: db.getSettings() }
   } catch (e) {
     return reply.code(422).send({ error: (e as Error).message })
+  }
+})
+
+// ── Projects ───────────────────────────────────────────────────────────────────
+
+app.get('/projects', async () => {
+  const projectsDir = join(homedir(), '.claude', 'projects')
+  if (!existsSync(projectsDir)) return { projects: [] }
+
+  const projects: { cwd: string; last_active: string }[] = []
+
+  for (const encoded of readdirSync(projectsDir)) {
+    const dir = join(projectsDir, encoded)
+    if (!statSync(dir).isDirectory()) continue
+
+    // Find most recent JSONL
+    let jsonls: string[]
+    try {
+      jsonls = readdirSync(dir).filter(f => f.endsWith('.jsonl'))
+    } catch { continue }
+    if (!jsonls.length) continue
+
+    const latest = jsonls
+      .map(f => ({ f, mtime: statSync(join(dir, f)).mtimeMs }))
+      .sort((a, b) => b.mtime - a.mtime)[0]
+
+    // Extract cwd from first 'user' entry
+    let cwd: string | null = null
+    let lastActive = new Date(latest.mtime).toISOString()
+    try {
+      const lines = readFileSync(join(dir, latest.f), 'utf8').split('\n').filter(Boolean)
+      for (const line of lines) {
+        const d = JSON.parse(line)
+        if (d.type === 'user' && d.cwd) { cwd = d.cwd; break }
+      }
+    } catch { continue }
+
+    if (cwd && existsSync(cwd)) projects.push({ cwd, last_active: lastActive })
+  }
+
+  // Dedupe by cwd, keep most recent
+  const seen = new Map<string, string>()
+  for (const p of projects) {
+    const existing = seen.get(p.cwd)
+    if (!existing || p.last_active > existing) seen.set(p.cwd, p.last_active)
+  }
+
+  return {
+    projects: [...seen.entries()]
+      .sort((a, b) => b[1].localeCompare(a[1]))
+      .map(([cwd, last_active]) => ({ cwd, last_active }))
   }
 })
 
