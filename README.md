@@ -1,27 +1,29 @@
 # restwalker
 
-Mac background service that smartly gates Claude Max plan usage for background jobs.
+> While you rest, it walks.
+
+Mac background service that maximises Claude Max plan usage during your idle hours — running background AI jobs through the night so no tokens go to waste.
 
 Runs as a LaunchAgent on port **47290**, owns its own SQLite DB, and exposes:
-- a scheduling API (`/can-run`) for factory-research hub to query before claiming jobs
+- a scheduling API (`/can-run`) for automated job runners to query before starting work
 - a live dashboard UI at `http://localhost:47290`
 
 ## How it works
 
-Usage data is fetched live from `api.anthropic.com/api/oauth/usage` using the OAuth token stored in your macOS Keychain (`Claude Code-credentials`). This is the same endpoint the `ccstatusline` shell widget uses — always real-time, never stale.
+Usage data is fetched live from `api.anthropic.com/api/oauth/usage` using the OAuth token stored in your macOS Keychain (`Claude Code-credentials`) — the same endpoint the `ccstatusline` widget uses. Always real-time, never stale.
 
 Data is cached in memory for 5 minutes to avoid rate-limiting. The background poller refreshes every `POLL_INTERVAL_MIN` minutes and persists snapshots to SQLite for trend charts.
 
-### Budget gates (all configurable via the gear icon)
+### Budget gates (all configurable via the ⚙ gear icon)
 
 | Gate | Default | Behaviour |
 |---|---|---|
-| Coding window | 16:00–02:00 PST | Always `ok=false` during active hours |
+| Coding window | 4:00 PM – 2:00 AM | Always `ok=false` during active hours |
 | 5h usage | ≥ 75% | Pause to protect interactive budget |
 | Weekly ceiling | ≥ 65% (100 − 35% reserve) | Pause background jobs |
 | Weekly hard stop | ≥ 90% | Hard pause regardless |
 
-When `ok=true`, the hub runs the job with `provider=max`. When `ok=false`, the hub sleeps 5 min and retries.
+When `ok=true`, the caller runs the job on `provider=max`. When `ok=false`, it should sleep and retry.
 
 ## Dashboard
 
@@ -29,30 +31,56 @@ When `ok=true`, the hub runs the job with `provider=max`. When `ok=false`, the h
 
 - Current window, 5h usage, weekly usage, next milestone
 - 48h trend chart (5h and weekly lines, threshold overlays, coding-window shading)
-- 4 linear-regression predictions (next hour / 4h / 8h / 24h)
+- Linear-regression predictions (next 1h / 4h / 8h / 24h)
 - Gear modal to configure all thresholds without restarting the service
 
-## Setup
+## Install
 
-### 1. Install dependencies
-
-```bash
-cd ~/dev/restwalker
-pip install -r requirements.txt
-```
-
-### 2. Install as LaunchAgent
+**Requirements:** macOS, Python 3.11+, Claude Code CLI (must be logged in)
 
 ```bash
-cp com.restwalker.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.restwalker.plist
+git clone https://github.com/agentmessier-ai/restwalker.git
+cd restwalker
+./install.sh
 ```
 
-The plist uses `~/miniconda3/bin/python3`. Edit `ProgramArguments` if your Python path differs.
+`install.sh` will:
+1. Install Python dependencies
+2. Patch the LaunchAgent plist with your Python path and home directory
+3. Copy it to `~/Library/LaunchAgents/` and load it
 
-### 3. Wire up factory-research hub
+Open `http://localhost:47290` to confirm it's running.
 
-Set `RESTWALKER_URL=http://192.168.0.124:47290` in the hub's environment (already in `deploy/k3s/hub-deployment.yaml`).
+### Custom Python path
+
+```bash
+PYTHON=/opt/homebrew/bin/python3 ./install.sh
+```
+
+## Uninstall
+
+```bash
+./uninstall.sh
+```
+
+Stops the service, removes the LaunchAgent, and optionally deletes `~/.restwalker/` (DB + logs). The app directory is left in place — delete it manually if you want.
+
+## Wiring up a job runner
+
+Query `/can-run` before starting any background job:
+
+```python
+import httpx
+
+async def can_run() -> bool:
+    try:
+        resp = await httpx.AsyncClient(timeout=5).get(
+            "http://localhost:47290/can-run", params={"project": "my-project"}
+        )
+        return resp.json().get("ok", True)
+    except Exception:
+        return True  # restwalker unreachable — proceed anyway
+```
 
 ## API
 
@@ -60,7 +88,7 @@ Set `RESTWALKER_URL=http://192.168.0.124:47290` in the hub's environment (alread
 |---|---|---|
 | `/can-run?project=<name>` | GET | `{ok, provider, reason, next_idle_in_s}` |
 | `/status` | GET | Full state: window, usage, thresholds, last snapshot |
-| `/sync` | POST | Force immediate API fetch + DB record (called by UI on open) |
+| `/sync` | POST | Force immediate API fetch + DB record |
 | `/history?hours=48` | GET | 15-min bucketed usage snapshots |
 | `/settings` | GET/POST | Read or update all thresholds (no restart needed) |
 | `/healthz` | GET | `{ok: true}` |
@@ -75,9 +103,15 @@ Set `RESTWALKER_URL=http://192.168.0.124:47290` in the hub's environment (alread
 | `index.html` | Dashboard UI (Chart.js, no build step) |
 | `requirements.txt` | Python dependencies |
 | `com.restwalker.plist` | LaunchAgent template |
+| `install.sh` | One-command installer |
+| `uninstall.sh` | Clean removal |
 
 ## Logs
 
 ```bash
 tail -f ~/.restwalker/restwalker.log
 ```
+
+## Name
+
+Inspired by 梦游 (mèngyóu) — sleepwalking. While you rest, it walks through your Claude Max quota so nothing goes to waste.
