@@ -8,7 +8,7 @@ import { createWriteStream } from 'fs'
 
 import * as db from './db.js'
 import * as scheduler from './scheduler.js'
-import { startQueue } from './runner.js'
+import { startQueue, setQueue, enqueueTask } from './runner.js'
 import type { Settings } from './db.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -161,6 +161,7 @@ app.post('/queue', async (req, reply) => {
   const { description, cwd } = req.body as { description?: string; cwd?: string }
   if (!description?.trim()) return reply.code(400).send({ error: 'description required' })
   const task = db.addTask(description.trim(), cwd?.trim())
+  enqueueTask(task)
   app.log.info(`[queue] added #${task.id}: ${description.slice(0, 80)}`)
   return { ok: true, task }
 })
@@ -169,8 +170,8 @@ app.delete('/queue/:id', async (req, reply) => {
   const id   = parseInt((req.params as { id: string }).id)
   const task = db.getTask(id)
   if (!task) return reply.code(404).send({ error: 'not found' })
-  if (task.status !== 'pending') return reply.code(409).send({ error: 'can only delete pending tasks' })
-  db.deleteTask(id)
+  if (task.status !== 'pending') return reply.code(409).send({ error: 'can only cancel pending tasks' })
+  db.cancelTask(id)
   return { ok: true }
 })
 
@@ -186,4 +187,4 @@ await app.listen({ host: '0.0.0.0', port: PORT })
 app.log.info(`[restwalker] running on http://localhost:${PORT}`)
 app.log.info(`[restwalker] watching ${scheduler.USAGE_CACHE}`)
 startPoller()
-startQueue(msg => app.log.info(msg))
+setQueue(startQueue(msg => app.log.info(msg)))

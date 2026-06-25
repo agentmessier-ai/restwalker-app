@@ -54,7 +54,7 @@ export const SETTING_DEFAULTS: Settings = {
 
 // ── Queue types ────────────────────────────────────────────────────────────────
 
-export type TaskStatus = 'pending' | 'running' | 'done' | 'failed' | 'skipped'
+export type TaskStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancelled'
 
 export interface Task {
   id:           number
@@ -198,12 +198,6 @@ export function addTask(description: string, cwd = ''): Task {
   ).get(description, cwd || process.env.HOME || '') as Task
 }
 
-export function nextPendingTask(): Task | null {
-  return db.prepare(
-    "SELECT * FROM tasks WHERE status='pending' ORDER BY id ASC LIMIT 1"
-  ).get() as Task | null
-}
-
 export function setTaskRunning(id: number): void {
   db.prepare(
     "UPDATE tasks SET status='running', started_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id=?"
@@ -246,8 +240,8 @@ export function getTask(id: number): Task | null {
   return db.prepare('SELECT * FROM tasks WHERE id=?').get(id) as Task | null
 }
 
-export function deleteTask(id: number): void {
-  db.prepare("DELETE FROM tasks WHERE id=? AND status='pending'").run(id)
+export function cancelTask(id: number): void {
+  db.prepare("UPDATE tasks SET status='cancelled' WHERE id=? AND status='pending'").run(id)
 }
 
 // ── Queue: skills ──────────────────────────────────────────────────────────────
@@ -265,11 +259,11 @@ export function getSkills(limit = 20): Skill[] {
 export function queueStats(): { pending: number; running: number; done: number; failed: number; skills: number } {
   const row = db.prepare(`
     SELECT
-      SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) AS pending,
-      SUM(CASE WHEN status='running' THEN 1 ELSE 0 END) AS running,
-      SUM(CASE WHEN status='done'    THEN 1 ELSE 0 END) AS done,
-      SUM(CASE WHEN status='failed'  THEN 1 ELSE 0 END) AS failed
-    FROM tasks
+      SUM(CASE WHEN status='pending'   THEN 1 ELSE 0 END) AS pending,
+      SUM(CASE WHEN status='running'   THEN 1 ELSE 0 END) AS running,
+      SUM(CASE WHEN status='done'      THEN 1 ELSE 0 END) AS done,
+      SUM(CASE WHEN status='failed'    THEN 1 ELSE 0 END) AS failed
+    FROM tasks WHERE status != 'cancelled'
   `).get() as { pending: number; running: number; done: number; failed: number }
   const skills = (db.prepare('SELECT COUNT(*) AS n FROM skills').get() as { n: number }).n
   return { ...row, skills }

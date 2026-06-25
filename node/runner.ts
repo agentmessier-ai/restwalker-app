@@ -1,12 +1,18 @@
+import Queue from 'better-queue'
+import { createRequire } from 'module'
 import { spawn } from 'child_process'
+import { join } from 'path'
+import { homedir } from 'os'
 import * as db from './db.js'
 import * as scheduler from './scheduler.js'
 import { findSessionJsonl, analyzeSession, skillify } from './skillifier.js'
 
-const CLAUDE_BIN = process.env.CLAUDE_BIN ?? 'claude'
-const POLL_MS    = parseInt(process.env.QUEUE_POLL_MS ?? '120000')  // 2 min
+const require = createRequire(import.meta.url)
+const SqliteStore = require('better-queue-sqlite')
 
-let running = false
+const QUEUE_DB   = join(homedir(), '.restwalker', 'queue.db')
+const CLAUDE_BIN = process.env.CLAUDE_BIN ?? 'claude'
+const POLL_MS    = parseInt(process.env.QUEUE_POLL_MS ?? '120000')
 
 async function gateOpen(): Promise<boolean> {
   try {
@@ -22,14 +28,24 @@ async function gateOpen(): Promise<boolean> {
   }
 }
 
-async function runTask(task: db.Task): Promise<void> {
+interface QueuePayload {
+  id: string     // better-queue uses this as the task key
+  taskId: number
+  description: string
+  cwd: string
+}
+
+async function processTask(input: QueuePayload): Promise<void> {
+  const task = db.getTask(input.taskId)
+  if (!task || task.status === 'cancelled') return
+
   console.log(`[queue] starting task #${task.id}: ${task.description.slice(0, 80)}`)
   db.setTaskRunning(task.id)
 
   const startedAt = Date.now()
   const cwd = task.cwd || process.env.HOME || '.'
 
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const proc = spawn(CLAUDE_BIN, [
       '--print', '--permission-mode', 'auto', '--output-format', 'text',
       task.description,
@@ -42,11 +58,11 @@ async function runTask(task: db.Task): Promise<void> {
 
     proc.on('close', (code) => {
       const result = stdout.join('').trim() || stderr.join('').trim()
-      console.log(`[queue] task #${task.id} exited with code ${code}`)
+      console.log(`[queue] task #${task.id} exited code ${code}`)
 
       if (code !== 0) {
         db.setTaskFailed(task.id, `exit ${code}: ${result.slice(0, 500)}`)
-        resolve()
+        reject(new Error(`exit ${code}`))
         return
       }
 
@@ -76,8 +92,6 @@ async function runTask(task: db.Task): Promise<void> {
               })
               console.log(`[queue] skill written: ${skillPath}`)
             }
-          } else {
-            console.log(`[queue] task #${task.id} had ${analysis.toolCalls} tool calls — skipping skillify`)
           }
         } catch (e) {
           console.warn('[queue] skillifier error:', (e as Error).message)
@@ -85,7 +99,7 @@ async function runTask(task: db.Task): Promise<void> {
       }
 
       db.setTaskDone(task.id, {
-        result:       result.slice(0, 1000),
+        result: result.slice(0, 1000),
         session_id:   sessionId ?? undefined,
         session_path: sessionPath ?? undefined,
         skill_path:   skillPath ?? undefined,
@@ -98,26 +112,41 @@ async function runTask(task: db.Task): Promise<void> {
 
     proc.on('error', (e) => {
       db.setTaskFailed(task.id, e.message)
-      resolve()
+      reject(e)
     })
   })
 }
 
-export async function startQueue(log: (msg: string) => void): Promise<void> {
-  if (running) return
-  running = true
+export function startQueue(log: (msg: string) => void): Queue<QueuePayload, void> {
+  const queue = new Queue<QueuePayload, void>(
+    (input, cb) => {
+      processTask(input).then(() => cb(null)).catch(cb)
+    },
+    {
+      store: new SqliteStore({ path: QUEUE_DB }),
+      concurrent: 1,
+      precondition: (cb: (err: null, ready: boolean) => void) => {
+        gateOpen().then(ok => cb(null, ok)).catch(() => cb(null, false))
+      },
+      preconditionRetryTimeout: POLL_MS,
+    }
+  )
+
+  queue.on('task_failed', (taskId: string, err: Error) => {
+    log(`[queue] task ${taskId} failed: ${err?.message ?? err}`)
+  })
+
   log('[queue] runner started')
-
-  const tick = async () => {
-    const task = db.nextPendingTask()
-    if (!task) { setTimeout(tick, POLL_MS); return }
-
-    const ok = await gateOpen()
-    if (!ok) { setTimeout(tick, POLL_MS); return }
-
-    await runTask(task)
-    setTimeout(tick, 5000)  // immediately try next
-  }
-
-  tick()
+  return queue
 }
+
+export function enqueueTask(task: db.Task): void {
+  // Lazily get the queue instance — set by app.ts after startQueue()
+  const q = getQueue()
+  if (!q) throw new Error('queue not started')
+  q.push({ id: String(task.id), taskId: task.id, description: task.description, cwd: task.cwd })
+}
+
+let _queue: Queue<QueuePayload, void> | null = null
+export function setQueue(q: Queue<QueuePayload, void>) { _queue = q }
+export function getQueue() { return _queue }
