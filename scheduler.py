@@ -16,9 +16,9 @@ PST = ZoneInfo("America/Los_Angeles")
 
 CODING_START_H       = int(os.environ.get("CODING_START_H",          "16"))   # 4pm PST
 CODING_END_H         = int(os.environ.get("CODING_END_H",            "2"))    # 2am PST
-FIVE_HOUR_THROTTLE   = float(os.environ.get("FIVE_HOUR_THROTTLE_PCT","75"))   # → deepseek
+FIVE_HOUR_THROTTLE   = float(os.environ.get("FIVE_HOUR_THROTTLE_PCT","75"))   # pause when hit
 WEEKLY_RESERVE_PCT   = float(os.environ.get("WEEKLY_RESERVE_PCT",    "35"))   # keep for coding
-WEEKLY_HARD_STOP_PCT = float(os.environ.get("WEEKLY_HARD_STOP_PCT",  "90"))   # pause all
+WEEKLY_HARD_STOP_PCT = float(os.environ.get("WEEKLY_HARD_STOP_PCT",  "90"))   # hard stop
 
 USAGE_CACHE = Path(os.environ.get(
     "CLAUDE_USAGE_CACHE",
@@ -90,40 +90,14 @@ def next_idle_in_s(now: datetime | None = None) -> int:
     return max(60, remaining)
 
 
-# ── Provider routing ──────────────────────────────────────────────────────────
-
-def pick_provider(usage: dict) -> str:
-    """Return 'max' or 'deepseek' based on budget state.
-
-    Defaults to 'max' when snapshot is stale — the time gate already blocks
-    jobs during coding hours, so the risk of over-consuming is low.
-    """
-    if not usage or usage.get("stale"):
-        return "max"
-
-    five_h = usage["five_hour_pct"]
-    weekly = usage["weekly_pct"]
-
-    if five_h >= FIVE_HOUR_THROTTLE:
-        logger.info(f"[scheduler] 5h={five_h:.1f}% ≥ {FIVE_HOUR_THROTTLE}% → deepseek")
-        return "deepseek"
-
-    ceiling = 100 - WEEKLY_RESERVE_PCT
-    if weekly >= ceiling:
-        logger.info(f"[scheduler] weekly={weekly:.1f}% ≥ {ceiling:.0f}% → deepseek")
-        return "deepseek"
-
-    return "max"
-
-
 # ── Gate check ────────────────────────────────────────────────────────────────
 
 def can_run(usage: dict | None = None) -> dict:
-    """Top-level decision: should a background job run, and on which provider?
+    """Top-level decision: should a background job run now?
 
     Returns:
-      ok        — True if a job may start now
-      provider  — 'max' | 'deepseek' | None
+      ok        — True if a job may start now (always on 'max' when ok)
+      provider  — 'max' | None
       reason    — human-readable explanation
     """
     now = datetime.now(timezone.utc)
@@ -139,19 +113,39 @@ def can_run(usage: dict | None = None) -> dict:
 
     u = usage if usage is not None else read_usage()
 
-    if u and not u.get("stale") and u["weekly_pct"] >= WEEKLY_HARD_STOP_PCT:
-        resets = u.get("weekly_resets_at", "?")
-        return {
-            "ok": False,
-            "provider": None,
-            "reason": f"weekly={u['weekly_pct']:.0f}% ≥ {WEEKLY_HARD_STOP_PCT}% — protecting coding budget until {resets}",
-            "next_idle_in_s": 0,
-        }
+    if u and not u.get("stale"):
+        five_h  = u["five_hour_pct"]
+        weekly  = u["weekly_pct"]
+        ceiling = 100 - WEEKLY_RESERVE_PCT
 
-    provider = pick_provider(u)
+        if five_h >= FIVE_HOUR_THROTTLE:
+            return {
+                "ok": False,
+                "provider": None,
+                "reason": f"5h={five_h:.0f}% ≥ {FIVE_HOUR_THROTTLE:.0f}% — pausing to protect coding budget",
+                "next_idle_in_s": 0,
+            }
+
+        if weekly >= WEEKLY_HARD_STOP_PCT:
+            resets = u.get("weekly_resets_at", "?")
+            return {
+                "ok": False,
+                "provider": None,
+                "reason": f"weekly={weekly:.0f}% ≥ {WEEKLY_HARD_STOP_PCT:.0f}% — hard stop until {resets}",
+                "next_idle_in_s": 0,
+            }
+
+        if weekly >= ceiling:
+            return {
+                "ok": False,
+                "provider": None,
+                "reason": f"weekly={weekly:.0f}% ≥ {ceiling:.0f}% — reserving {WEEKLY_RESERVE_PCT:.0f}% for coding",
+                "next_idle_in_s": 0,
+            }
+
     return {
         "ok": True,
-        "provider": provider,
-        "reason": "idle window" + ("" if provider == "max" else f" but budget tight → {provider}"),
+        "provider": "max",
+        "reason": "idle window, budget healthy",
         "next_idle_in_s": 0,
     }

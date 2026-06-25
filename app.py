@@ -82,12 +82,12 @@ def status():
         },
         "last_db_snapshot":  dict(snap) if snap else None,
         "thresholds": {
-            "coding_start_h":        scheduler.CODING_START_H,
-            "coding_end_h":          scheduler.CODING_END_H,
-            "five_hour_throttle_pct": scheduler.FIVE_HOUR_THROTTLE,
-            "weekly_reserve_pct":    scheduler.WEEKLY_RESERVE_PCT,
-            "weekly_hard_stop_pct":  scheduler.WEEKLY_HARD_STOP_PCT,
-            "cache_stale_s":         scheduler.CACHE_STALE_S,
+            "coding_start_h":         scheduler.CODING_START_H,
+            "coding_end_h":           scheduler.CODING_END_H,
+            "five_hour_pause_pct":    scheduler.FIVE_HOUR_THROTTLE,
+            "weekly_reserve_pct":     scheduler.WEEKLY_RESERVE_PCT,
+            "weekly_hard_stop_pct":   scheduler.WEEKLY_HARD_STOP_PCT,
+            "cache_stale_s":          scheduler.CACHE_STALE_S,
         },
     }
 
