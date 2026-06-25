@@ -32,15 +32,30 @@ KEYCHAIN_SERVICE = "Claude Code-credentials"
 # ── OAuth token ───────────────────────────────────────────────────────────────
 
 def _read_keychain_token() -> str | None:
-    """Read Claude Code OAuth access token from macOS Keychain."""
+    """Read Claude Code OAuth access token from macOS Keychain.
+
+    Re-reads every call so we always pick up the token after Claude Code
+    silently refreshes it (Claude Code owns the refresh cycle).
+    Returns None if expired or missing.
+    """
+    import time
     try:
         raw = subprocess.check_output(
             ["security", "find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"],
             stderr=subprocess.DEVNULL, timeout=5,
         ).decode().strip()
         data = json.loads(raw)
-        return data.get("claudeAiOauth", {}).get("accessToken")
-    except Exception:
+        oauth = data.get("claudeAiOauth", {})
+        expires_at_ms = oauth.get("expiresAt")
+        if expires_at_ms and time.time() * 1000 > expires_at_ms:
+            logger.warning(
+                "[scheduler] OAuth token expired — waiting for Claude Code to refresh it "
+                "(open a new Claude Code session to trigger refresh)"
+            )
+            return None
+        return oauth.get("accessToken")
+    except Exception as e:
+        logger.warning(f"[scheduler] keychain read failed: {e}")
         return None
 
 
@@ -86,6 +101,14 @@ def fetch_usage_from_api() -> dict:
             "stale":            False,
             "source":           "api",
         }
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            logger.warning("[scheduler] API 401 — token expired, waiting for Claude Code to refresh it")
+        elif e.code == 429:
+            logger.warning("[scheduler] API 429 — rate limited, will retry next poll")
+        else:
+            logger.warning(f"[scheduler] API HTTP {e.code}")
+        return {}
     except Exception as e:
         logger.warning(f"[scheduler] API fetch failed: {e}")
         return {}
