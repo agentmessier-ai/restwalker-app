@@ -107,6 +107,13 @@ Tasks have a description (the prompt), an optional working directory, model, pro
 
 The queue has two sections: **one-time tasks** at the top, **recurring tasks** below. Recurring tasks group all runs under a single entry showing run count, last run time, and execution duration.
 
+Each task also supports (in the form's "Advanced" section, the Edit & Re-queue panel, the API, and MCP):
+
+- **Task timeout** (`timeout_s`, seconds) — kill the agent if it runs longer; prefilled from the global default. Long research tasks should raise it.
+- **Webhooks** — `webhook_pre_url` / `webhook_post_url` get a JSON POST before and after the run (with status, tokens, result). Useful for Slack/Discord notifications or chaining. Failures are logged, never abort the task.
+
+Timeouts everywhere are in **seconds**. A failed recurring run still schedules its next occurrence, so one transient failure doesn't kill a daily task.
+
 ### Adding tasks via MCP (recommended)
 
 The easiest way to add tasks is from Claude Code itself:
@@ -136,7 +143,7 @@ Every task gets its own workspace folder under `~/.restwalker/workspace/`:
 - **One-time tasks:** `~/.restwalker/workspace/<id>-<slug>-<timestamp>/`
 - **Recurring tasks:** `~/.restwalker/workspace/<origin-id>-<slug>/<timestamp>/` — a fixed base folder per task, with a timestamped subfolder per run
 
-The agent's working directory is set to the workspace by default (override with a custom `cwd` if needed). Click **Open in Finder** in the task detail view to jump straight to the folder.
+The agent's working directory is set to the workspace by default (override with a custom `cwd` if needed). Click **Open in Finder** in the task detail view to jump straight to the folder. Each run also writes its full output to a `logs/` subfolder (`stdout.log` / `stderr.log`), persisted even on failure.
 
 ## Versioned task prompts
 
@@ -160,7 +167,7 @@ Restwalker injects a preamble into every task prompt that tells the agent how to
 ARTIFACT: {"path": "/absolute/path/to/file", "description": "one-line description"}
 ```
 
-Restwalker parses these declarations after each task and stores them in the database. They appear as clickable chips in the task detail view.
+Restwalker parses these declarations after each task and stores them in the database. They appear as clickable chips in the task detail view, each with a **📁** button that reveals the file in Finder.
 
 ### Artifact viewer
 
@@ -198,26 +205,53 @@ The system prompt injected into every task is versioned and editable. Click **�
 
 ## Agent providers
 
-The default provider runs `claude --print --permission-mode auto --model {{model}} {{task}}`. You can add any provider with a custom command and args template using `{{task}}`, `{{model}}`, and `{{cwd}}` placeholders.
+The default provider — **`claude -p`** — runs `claude --print --permission-mode auto --model {{model}} {{task}}` (loop type `claude_print`). You can add any provider with a custom command and args template using `{{task}}`, `{{model}}`, and `{{cwd}}` placeholders, and pick its **loop type**: `claude_print` (spawn the CLI, the pipe) or `claude_sdk` (Anthropic Messages API).
 
 ## MCP server
 
-The MCP server (`node/mcp.ts`) exposes 17 tools for Claude Code via stdio transport:
+The MCP server (`node/mcp.ts`) exposes 23 tools for Claude Code via stdio transport:
 
 | Group | Tools |
 |---|---|
 | Status | `status`, `can_run`, `usage_history`, `sync` |
-| Queue | `queue_stats`, `queue_list`, `queue_get`, `queue_add`, `queue_cancel`, `queue_force_run`, `queue_session` |
+| Queue | `queue_stats`, `queue_list`, `queue_get`, `queue_add`, `queue_cancel`, `queue_force_run`, `queue_session`, `queue_artifacts` |
+| Task prompts | `task_prompt_save`, `task_prompt_versions` |
+| System prompt | `system_prompt_get`, `system_prompt_set` |
 | Providers | `list_providers`, `add_provider`, `set_default_provider` |
 | Discovery | `list_models`, `list_projects` |
 | Settings | `get_settings`, `update_settings` |
 
-Register manually if you skipped it during install (replace `~/dev/restwalker` with your clone path):
+`queue_add` and `task_prompt_save` derive their input schemas from the live OpenAPI spec at
+startup — adding a field to the REST route surfaces it in the MCP tool automatically.
+
+The installer registers the MCP for you. To register manually, replace `~/dev/restwalker`
+with your clone path:
 
 ```bash
+claude mcp add --scope user restwalker -- restwalker mcp
+# or, without a global install:
 claude mcp add --scope user restwalker -- \
   node ~/dev/restwalker/node/node_modules/.bin/tsx ~/dev/restwalker/node/mcp.ts
 ```
+
+## Claude Code plugin
+
+A companion [Claude Code plugin](plugin/) turns natural language into RestWalker actions from
+any chat — no dashboard needed. It bundles four skills (and the MCP server):
+
+| Skill | Say something like |
+|---|---|
+| `/restwalker:defer` | "do this tonight", "defer this", "run X overnight" |
+| `/restwalker:status` | "restwalker status", "what's in my queue", "how much budget left" |
+| `/restwalker:result` | "what did last night's task produce", "show the dream journal" |
+| `/restwalker:dream-journal` | "set up my nightly dream journal" |
+
+```
+/plugin marketplace add agentmessier-ai/restwalker
+/plugin install restwalker@restwalker
+```
+
+See [`plugin/README.md`](plugin/README.md) for details.
 
 ## API
 
@@ -227,8 +261,9 @@ Key endpoints:
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `/queue` | GET | List tasks (filter by status, schedule type, sort) |
+| `/queue` | GET | List tasks (filter by status, schedule type, **tag**, sort) |
 | `/queue` | POST | Add a task |
+| `/queue/tags` | GET | Distinct task tags with usage counts |
 | `/queue/:id` | GET | Get a single task |
 | `/queue/:id/force-run` | POST | Force-run bypassing the gate |
 | `/queue/:id/session` | GET | Session transcript with thinking blocks |
@@ -240,7 +275,7 @@ Key endpoints:
 | `/task-prompts/:id/versions` | GET | List all versions in a prompt chain |
 | `/system-prompt` | GET/POST | Read or update the active system prompt |
 | `/system-prompt/restore-builtin` | POST | Restore to the built-in default |
-| `/open-folder` | POST | Open a workspace folder in Finder |
+| `/open-folder` | POST | Open a folder in Finder, or reveal a file (`reveal: true`) |
 | `/queue/stats` | GET | Counts by status |
 | `/providers` | GET/POST | List or add agent providers |
 | `/models` | GET | Live Anthropic model list |
@@ -261,8 +296,10 @@ Key endpoints:
 | `node/scheduler.ts` | Keychain read, Anthropic API fetch, time gate, budget logic |
 | `node/session.ts` | Session JSONL parser, analysis, artifact extraction |
 | `node/mime.ts` | Mime-type lookup helper (no external dependency) |
-| `node/mcp.ts` | MCP server (stdio, 17 tools) |
+| `node/mcp.ts` | MCP server (stdio, 23 tools) |
 | `index.html` | Dashboard UI (no build step, hash-based routing) |
+| `plugin/` | Claude Code plugin — skills + bundled MCP server |
+| `examples/tasks/` | Reference recurring tasks (e.g. the Dream Journal) |
 | `install.sh` | One-command installer with interactive MCP registration |
 | `uninstall.sh` | Clean removal |
 
