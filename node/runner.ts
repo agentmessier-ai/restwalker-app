@@ -66,7 +66,13 @@ async function processTask(input: QueuePayload): Promise<void> {
   db.setTaskRunning(task.id)
 
   const startedAt = Date.now()
-  const workspacePath = join(db.WORKSPACE_DIR, String(task.id))
+  const slug = task.description
+    .split('\n')[0]
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+  const workspacePath = join(db.WORKSPACE_DIR, `${task.id}-${slug}`)
   if (!existsSync(workspacePath)) mkdirSync(workspacePath, { recursive: true })
   const cwd = task.cwd || workspacePath
 
