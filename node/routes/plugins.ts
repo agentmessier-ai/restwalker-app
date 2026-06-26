@@ -23,6 +23,8 @@ export default async function pluginRoutes(app: FastifyInstance) {
                   hooks:    { type: 'array', items: { type: 'string' } },
                   error:    { type: ['string', 'null'] },
                   path:     { type: ['string', 'null'] },
+                  settings: { type: ['object', 'null'], additionalProperties: true },
+                  config:   { type: 'object', additionalProperties: true },
                 },
               },
             },
