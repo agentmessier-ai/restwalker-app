@@ -303,17 +303,17 @@
       </select>
       <button onclick="refreshQueue()" style="background:var(--card);border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:4px" title="Refresh task list">↻ Refresh</button>
     </div>
-    <!-- Recurring tasks section -->
-    <div id="q-recurring-section" style="margin-bottom:20px">
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#a78bfa;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid rgba(167,139,250,.2)">🔁 Recurring</div>
-      <div id="q-recurring-list"><div style="color:var(--muted);font-size:12px;font-style:italic;padding:8px 0">No recurring tasks</div></div>
-    </div>
-
     <!-- One-time tasks section -->
-    <div>
+    <div style="margin-bottom:20px">
       <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border)">One-time</div>
       <div id="q-task-list"><div style="color:var(--muted);text-align:center;padding:20px;font-style:italic">No tasks yet</div></div>
       <div id="q-pagination"></div>
+    </div>
+
+    <!-- Recurring tasks section -->
+    <div id="q-recurring-section">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#a78bfa;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid rgba(167,139,250,.2)">🔁 Recurring</div>
+      <div id="q-recurring-list"><div style="color:var(--muted);font-size:12px;font-style:italic;padding:8px 0">No recurring tasks</div></div>
     </div>
   </div>
 
