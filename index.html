@@ -288,7 +288,7 @@
             <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:4px">Task timeout</div>
             <div style="display:flex;align-items:center;gap:6px">
               <input id="q-timeout-min" type="number" placeholder="default" min="1" max="180" style="width:90px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:inherit">
-              <span style="font-size:11px;color:var(--muted)">min — kill the agent if it runs longer (blank = global default, 10 min). Raise this for long research tasks.</span>
+              <span style="font-size:11px;color:var(--muted)">min — kill the agent if it runs longer. Prefilled from the system default; raise it for long research tasks, or clear to follow the global setting.</span>
             </div>
           </div>
         </div>
@@ -1032,9 +1032,23 @@ async function refresh() {
   } catch(e) { console.error('refresh failed', e); }
 }
 
+// Global default task timeout (minutes), read from system settings — used to
+// prepopulate the task-timeout fields so users see the real default, not "default".
+let _taskTimeoutDefaultMin = 10
+
+async function loadTaskTimeoutDefault() {
+  try {
+    const cfg = await fetch('/settings').then(r => r.json())
+    _taskTimeoutDefaultMin = Math.round(parseInt(cfg.TASK_TIMEOUT_MS ?? '600000') / 60000) || 10
+  } catch { /* keep fallback */ }
+  const el = document.getElementById('q-timeout-min')
+  if (el && !el.value) el.value = _taskTimeoutDefaultMin
+}
+
 async function init() {
   const startTab = window.location.hash === '#queue' ? 'queue' : 'dash'
   if (startTab === 'queue') switchTab('queue', false)
+  await loadTaskTimeoutDefault();
   await fetch('/sync', { method: 'POST' }).catch(() => {});
   await refresh();
   setInterval(refresh, 60000);
@@ -1661,6 +1675,7 @@ async function queueAddTask() {
     document.getElementById('q-cwd-select').value = ''
     document.getElementById('q-cwd-custom').style.display = 'none'
     document.getElementById('q-cwd-custom').value = ''
+    document.getElementById('q-timeout-min').value = _taskTimeoutDefaultMin
     refreshQueue()
   } else {
     alert(r.error)
@@ -1702,7 +1717,7 @@ async function openRequeuePanel(taskId) {
   document.getElementById('rq-run-now').checked = false
   // prefill advanced fields from the task being edited
   document.getElementById('rq-cwd').value = t.cwd || ''
-  document.getElementById('rq-timeout-min').value = t.timeout_ms ? Math.round(t.timeout_ms / 60000) : ''
+  document.getElementById('rq-timeout-min').value = t.timeout_ms ? Math.round(t.timeout_ms / 60000) : _taskTimeoutDefaultMin
   document.getElementById('rq-webhook-pre').value = t.webhook_pre_url || ''
   document.getElementById('rq-webhook-post').value = t.webhook_post_url || ''
   document.getElementById('rq-webhook-timeout').value = t.webhook_timeout_ms ?? 10000
