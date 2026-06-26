@@ -1,44 +1,19 @@
 import { Task } from './db.js'
+import { join } from 'path'
+import { readFileSync, writeFileSync, existsSync } from 'fs'
+import { homedir } from 'os'
 
-// ── Hook types ─────────────────────────────────────────────────────────────
+// ── Hook types ─────────────────────────────────────────────────────────────────
 
-export interface PreTaskContext {
-  task: Task
-  workspacePath: string
-}
-
-export interface PostTaskContext {
-  task: Task
-  workspacePath: string
-  status: 'done' | 'failed'
-  tokensUsed: number
-  toolCalls: number
-  result: string
-}
-
-export interface OnArtifactContext {
-  task: Task
-  artifactPath: string
-  description: string
-  mimeType: string
-}
-
-export interface OnIdleContext {
-  reason: string   // why idle: 'gate_closed' | 'no_tasks' | 'window_closed'
-}
+export interface PreTaskContext  { task: Task; workspacePath: string }
+export interface PostTaskContext { task: Task; workspacePath: string; status: 'done' | 'failed'; tokensUsed: number; toolCalls: number; result: string }
+export interface OnArtifactContext { task: Task; artifactPath: string; description: string; mimeType: string }
+export interface OnIdleContext   { reason: string }
 
 export type HookName = 'pre_task' | 'post_task' | 'on_artifact' | 'on_idle'
-
 type HookHandler<T> = (ctx: T) => Promise<void> | void
 
-interface HookRegistry {
-  pre_task:    HookHandler<PreTaskContext>[]
-  post_task:   HookHandler<PostTaskContext>[]
-  on_artifact: HookHandler<OnArtifactContext>[]
-  on_idle:     HookHandler<OnIdleContext>[]
-}
-
-// ── Plugin interface ────────────────────────────────────────────────────────
+// ── Plugin interface ───────────────────────────────────────────────────────────
 
 export interface PluginContext {
   on(hook: 'pre_task',    handler: HookHandler<PreTaskContext>):    void
@@ -52,35 +27,144 @@ export interface Plugin {
   register(ctx: PluginContext): void
 }
 
-// ── Plugin manager ──────────────────────────────────────────────────────────
+export interface PluginEntry {
+  name:    string
+  enabled: boolean
+  builtin: boolean
+  hooks:   HookName[]
+  error:   string | null
+  path:    string | null
+}
+
+// ── Persistence ────────────────────────────────────────────────────────────────
+
+const PLUGINS_FILE = join(homedir(), '.restwalker', 'plugins.json')
+
+interface PluginsPersisted {
+  disabled: string[]
+  external: { name: string; path: string }[]
+}
+
+function loadPersisted(): PluginsPersisted {
+  if (!existsSync(PLUGINS_FILE)) return { disabled: [], external: [] }
+  try { return JSON.parse(readFileSync(PLUGINS_FILE, 'utf8')) }
+  catch { return { disabled: [], external: [] } }
+}
+
+function savePersisted(data: PluginsPersisted): void {
+  try { writeFileSync(PLUGINS_FILE, JSON.stringify(data, null, 2), 'utf8') }
+  catch { /* best-effort */ }
+}
+
+// ── Plugin manager ─────────────────────────────────────────────────────────────
+
+interface PluginRecord {
+  entry:    PluginEntry
+  handlers: Map<HookName, HookHandler<any>[]>
+}
 
 class PluginManager {
-  private hooks: HookRegistry = { pre_task: [], post_task: [], on_artifact: [], on_idle: [] }
+  private records: Map<string, PluginRecord> = new Map()
   private _log: { info(s: string): void; warn(s: string): void } = { info: console.log, warn: console.warn }
 
   setLogger(l: typeof this._log) { this._log = l }
 
-  register(plugin: Plugin): void {
+  register(plugin: Plugin, opts: { builtin?: boolean; path?: string | null } = {}): PluginEntry {
+    const persisted = loadPersisted()
+    const enabled   = !persisted.disabled.includes(plugin.name)
+    const hooks: HookName[] = []
+    const handlers  = new Map<HookName, HookHandler<any>[]>()
+
+    const entry: PluginEntry = {
+      name:    plugin.name,
+      enabled,
+      builtin: opts.builtin ?? false,
+      hooks,
+      error:   null,
+      path:    opts.path ?? null,
+    }
+
     const ctx: PluginContext = {
       on: (hook: HookName, handler: HookHandler<any>) => {
-        this.hooks[hook].push(handler)
+        if (!hooks.includes(hook)) hooks.push(hook)
+        const arr = handlers.get(hook) ?? []
+        arr.push(handler)
+        handlers.set(hook, arr)
       },
     }
+
     try {
       plugin.register(ctx)
-      this._log.info(`[plugins] registered: ${plugin.name}`)
+      this._log.info(`[plugins] registered: ${plugin.name}${enabled ? '' : ' (disabled)'}`)
     } catch (e) {
-      this._log.warn(`[plugins] failed to register ${plugin.name}: ${(e as Error).message}`)
+      entry.error = (e as Error).message
+      this._log.warn(`[plugins] failed to register ${plugin.name}: ${entry.error}`)
     }
+
+    this.records.set(plugin.name, { entry, handlers })
+    return entry
+  }
+
+  async loadExternal(filePath: string): Promise<PluginEntry> {
+    const abs = filePath.startsWith('/') ? filePath : join(process.cwd(), filePath)
+    const mod = await import(abs) as { default?: Plugin; plugin?: Plugin }
+    const plugin: Plugin | undefined = mod.default ?? mod.plugin
+    if (!plugin || typeof plugin.name !== 'string' || typeof plugin.register !== 'function') {
+      throw new Error(`${filePath} must export a default Plugin object with { name, register() }`)
+    }
+    if (this.records.has(plugin.name)) {
+      throw new Error(`plugin "${plugin.name}" is already registered`)
+    }
+    const entry = this.register(plugin, { builtin: false, path: abs })
+    const persisted = loadPersisted()
+    if (!persisted.external.find(e => e.path === abs)) {
+      persisted.external.push({ name: plugin.name, path: abs })
+      savePersisted(persisted)
+    }
+    return entry
+  }
+
+  disable(name: string): void {
+    const rec = this.records.get(name)
+    if (!rec) throw new Error(`plugin "${name}" not found`)
+    rec.entry.enabled = false
+    const p = loadPersisted()
+    if (!p.disabled.includes(name)) p.disabled.push(name)
+    savePersisted(p)
+    this._log.info(`[plugins] disabled: ${name}`)
+  }
+
+  enable(name: string): void {
+    const rec = this.records.get(name)
+    if (!rec) throw new Error(`plugin "${name}" not found`)
+    rec.entry.enabled = true
+    const p = loadPersisted()
+    p.disabled = p.disabled.filter(n => n !== name)
+    savePersisted(p)
+    this._log.info(`[plugins] enabled: ${name}`)
+  }
+
+  getAll(): PluginEntry[] {
+    return [...this.records.values()].map(r => r.entry)
   }
 
   async invoke<T>(hook: HookName, ctx: T): Promise<void> {
-    for (const handler of (this.hooks as any)[hook] as HookHandler<T>[]) {
-      try {
-        await handler(ctx)
-      } catch (e) {
-        this._log.warn(`[plugins] hook ${hook} error: ${(e as Error).message}`)
+    for (const { entry, handlers } of this.records.values()) {
+      if (!entry.enabled) continue
+      const arr = handlers.get(hook)
+      if (!arr) continue
+      for (const h of arr) {
+        try { await h(ctx) }
+        catch (e) { this._log.warn(`[plugins] ${hook} error in ${entry.name}: ${(e as Error).message}`) }
       }
+    }
+  }
+
+  async loadPersistedExternal(): Promise<void> {
+    const { external } = loadPersisted()
+    for (const { path } of external) {
+      try { await this.loadExternal(path) }
+      catch (e) { this._log.warn(`[plugins] failed to reload external plugin from ${path}: ${(e as Error).message}`) }
     }
   }
 }

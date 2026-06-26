@@ -26,6 +26,7 @@ import queueRoutes        from './routes/queue.js'
 import systemPromptRoutes from './routes/system-prompt.js'
 import taskPromptsRoutes  from './routes/task-prompts.js'
 import utilityRoutes      from './routes/utility.js'
+import pluginRoutes       from './routes/plugins.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PORT      = parseInt(process.env.PORT ?? '47290')
@@ -59,6 +60,7 @@ await app.register(fastifySwagger, {
       { name: 'system-prompt', description: 'Versioned system prompt management' },
       { name: 'task-prompts',  description: 'Versioned task prompt objects' },
       { name: 'utility',       description: 'Utility endpoints' },
+      { name: 'plugins',       description: 'Plugin management' },
     ],
   },
 })
@@ -85,6 +87,7 @@ await app.register(queueRoutes)
 await app.register(systemPromptRoutes)
 await app.register(taskPromptsRoutes)
 await app.register(utilityRoutes)
+await app.register(pluginRoutes)
 
 // ── File watcher ───────────────────────────────────────────────────────────────
 
@@ -134,6 +137,7 @@ setSchedulerLogger({ info: (s) => app.log.info(s), warn: (s) => app.log.warn(s) 
 plugins.setLogger({ info: (s) => app.log.info(s), warn: (s) => app.log.warn(s) })
 setGbrainLogger({ info: (s) => app.log.info(s), warn: (s) => app.log.warn(s) })
 setWebhookLogger({ info: (s) => app.log.info(s), warn: (s) => app.log.warn(s) })
-plugins.register(webhookPlugin)
-plugins.register(logTaskPlugin)
-plugins.register(gbrainPlugin)
+plugins.register(webhookPlugin, { builtin: true })
+plugins.register(logTaskPlugin, { builtin: true })
+plugins.register(gbrainPlugin, { builtin: true })
+await plugins.loadPersistedExternal()
