@@ -57,6 +57,8 @@ Stops the service, removes the LaunchAgent, and optionally deletes `~/.restwalke
 
 `http://localhost:47290`
 
+![Dashboard](docs/screenshot-dashboard.png)
+
 - Live gate status, 5h and weekly usage, next window
 - 48h trend chart with threshold overlays and coding-window shading
 - Task queue: add, paginate, expand rows to view session transcripts and reasoning blocks
@@ -64,6 +66,8 @@ Stops the service, removes the LaunchAgent, and optionally deletes `~/.restwalke
 - Settings: all thresholds configurable without restart
 
 ## Task queue
+
+![Queue](docs/screenshot-queue.png)
 
 Tasks have a description (the prompt), an optional working directory, model, provider, and schedule:
 
