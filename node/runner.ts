@@ -72,7 +72,16 @@ async function processTask(input: QueuePayload): Promise<void> {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 40)
-  const workspacePath = join(db.WORKSPACE_DIR, `${task.id}-${slug}`)
+  const ts = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15)
+  let workspacePath: string
+  if (task.schedule !== 'once') {
+    // Recurring: fixed base folder per origin, timestamped subfolders per run
+    const originId = task.origin_id ?? task.id
+    const base = join(db.WORKSPACE_DIR, `${originId}-${slug}`)
+    workspacePath = join(base, ts)
+  } else {
+    workspacePath = join(db.WORKSPACE_DIR, `${task.id}-${slug}-${ts}`)
+  }
   if (!existsSync(workspacePath)) mkdirSync(workspacePath, { recursive: true })
   const cwd = task.cwd || workspacePath
 

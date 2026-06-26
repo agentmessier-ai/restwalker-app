@@ -182,6 +182,7 @@ export function migrate(): void {
   if (cols.length && !cols.includes('schedule'))       client.exec("ALTER TABLE tasks ADD COLUMN schedule TEXT NOT NULL DEFAULT 'once'")
   if (cols.length && !cols.includes('next_run_at'))    client.exec('ALTER TABLE tasks ADD COLUMN next_run_at TEXT')
   if (cols.length && !cols.includes('workspace_path')) client.exec('ALTER TABLE tasks ADD COLUMN workspace_path TEXT')
+  if (cols.length && !cols.includes('origin_id'))     client.exec('ALTER TABLE tasks ADD COLUMN origin_id INTEGER')
 
   // Seed default provider
   const count = db.select({ n: sql<number>`count(*)` }).from(schema.providers).get()!.n
@@ -328,18 +329,26 @@ export function addTask(
   description: string, cwd = '', model = DEFAULT_MODEL,
   providerId?: number | null, schedule: TaskSchedule = 'once',
 ): Task {
-  return db.insert(schema.tasks).values({
+  const task = db.insert(schema.tasks).values({
     description,
     cwd: cwd || '',
     model: model || DEFAULT_MODEL,
     provider_id: providerId ?? null,
     schedule,
   }).returning().get()!
+  // For recurring tasks, set origin_id to self on first creation
+  if (schedule !== 'once') {
+    db.update(schema.tasks).set({ origin_id: task.id }).where(eq(schema.tasks.id, task.id)).run()
+    return { ...task, origin_id: task.id }
+  }
+  return task
 }
 
 export function createNextRun(task: Task): Task | null {
   if (!task.schedule || task.schedule === 'once') return null
+  const originId = task.origin_id ?? task.id
   return db.insert(schema.tasks).values({
+    origin_id:   originId,
     description: task.description,
     cwd:         task.cwd,
     model:       task.model,
@@ -348,6 +357,37 @@ export function createNextRun(task: Task): Task | null {
     status:      'scheduled',
     next_run_at: computeNextRun(task.schedule as TaskSchedule),
   }).returning().get()!
+}
+
+// All distinct recurring task chains (one representative + run count per chain)
+export function getRecurringGroups(): { origin: Task; runs: Task[] }[] {
+  // Get all tasks with a schedule != once, group by origin_id
+  const all = db.select().from(schema.tasks)
+    .where(sql`schedule != 'once'`)
+    .orderBy(desc(schema.tasks.id))
+    .all()
+  const groups = new Map<number, Task[]>()
+  for (const t of all) {
+    const key = t.origin_id ?? t.id
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key)!.push(t)
+  }
+  return Array.from(groups.entries())
+    .sort((a, b) => b[0] - a[0])
+    .map(([, runs]) => ({
+      origin: runs.find(r => r.status === 'scheduled') ?? runs[0],
+      runs:   runs.filter(r => r.status !== 'scheduled'),
+    }))
+}
+
+export function getRunsByOrigin(originId: number): Task[] {
+  return db.select().from(schema.tasks)
+    .where(and(
+      eq(schema.tasks.origin_id, originId),
+      sql`schedule != 'once'`,
+    ))
+    .orderBy(desc(schema.tasks.id))
+    .all()
 }
 
 export function getScheduledDueTasks(): Task[] {
@@ -360,30 +400,41 @@ export function getScheduledDueTasks(): Task[] {
 }
 
 export function getTasks(limit = 25, offset = 0, opts?: {
-  status?: TaskStatus; sort?: 'created' | 'finished' | 'duration'; dir?: 'asc' | 'desc'
+  status?: TaskStatus
+  scheduleType?: 'once' | 'recurring'
+  sort?: 'created' | 'finished' | 'duration'
+  dir?: 'asc' | 'desc'
 }): Task[] {
-  const { status, sort = 'created', dir = 'desc' } = opts ?? {}
+  const { status, scheduleType, sort = 'created', dir = 'desc' } = opts ?? {}
   const orderFn = dir === 'asc' ? asc : desc
   const orderExpr = sort === 'finished'
     ? orderFn(schema.tasks.finished_at)
     : sort === 'duration'
     ? orderFn(sql`(unixepoch(finished_at) - unixepoch(started_at))`)
     : orderFn(schema.tasks.id)
-  if (status) {
-    return db.select().from(schema.tasks)
-      .where(eq(schema.tasks.status, status))
-      .orderBy(orderExpr).limit(limit).offset(offset).all()
-  }
-  return db.select().from(schema.tasks)
-    .orderBy(orderExpr).limit(limit).offset(offset).all()
+
+  const conditions = []
+  if (status)       conditions.push(eq(schema.tasks.status, status))
+  if (scheduleType === 'once')      conditions.push(eq(schema.tasks.schedule, 'once'))
+  if (scheduleType === 'recurring') conditions.push(sql`schedule != 'once'`)
+
+  const where = conditions.length ? and(...conditions) : undefined
+  return (where
+    ? db.select().from(schema.tasks).where(where)
+    : db.select().from(schema.tasks)
+  ).orderBy(orderExpr).limit(limit).offset(offset).all()
 }
 
-export function getTaskCount(status?: TaskStatus): number {
-  if (status) {
-    return db.select({ n: sql<number>`count(*)` }).from(schema.tasks)
-      .where(eq(schema.tasks.status, status)).get()!.n
-  }
-  return db.select({ n: sql<number>`count(*)` }).from(schema.tasks).get()!.n
+export function getTaskCount(status?: TaskStatus, scheduleType?: 'once' | 'recurring'): number {
+  const conditions = []
+  if (status)       conditions.push(eq(schema.tasks.status, status))
+  if (scheduleType === 'once')      conditions.push(eq(schema.tasks.schedule, 'once'))
+  if (scheduleType === 'recurring') conditions.push(sql`schedule != 'once'`)
+  const where = conditions.length ? and(...conditions) : undefined
+  return (where
+    ? db.select({ n: sql<number>`count(*)` }).from(schema.tasks).where(where)
+    : db.select({ n: sql<number>`count(*)` }).from(schema.tasks)
+  ).get()!.n
 }
 
 export function getTask(id: number): Task | null {

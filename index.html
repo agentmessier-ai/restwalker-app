@@ -303,8 +303,18 @@
       </select>
       <button onclick="refreshQueue()" style="background:var(--card);border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:4px" title="Refresh task list">↻ Refresh</button>
     </div>
-    <div id="q-task-list"><div style="color:var(--muted);text-align:center;padding:20px;font-style:italic">No tasks yet</div></div>
-    <div id="q-pagination"></div>
+    <!-- Recurring tasks section -->
+    <div id="q-recurring-section" style="margin-bottom:20px">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#a78bfa;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid rgba(167,139,250,.2)">🔁 Recurring</div>
+      <div id="q-recurring-list"><div style="color:var(--muted);font-size:12px;font-style:italic;padding:8px 0">No recurring tasks</div></div>
+    </div>
+
+    <!-- One-time tasks section -->
+    <div>
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border)">One-time</div>
+      <div id="q-task-list"><div style="color:var(--muted);text-align:center;padding:20px;font-style:italic">No tasks yet</div></div>
+      <div id="q-pagination"></div>
+    </div>
   </div>
 
 </main>
@@ -1132,12 +1142,15 @@ async function refreshQueue() {
   const filterStatus = document.getElementById('q-filter-status')?.value || ''
   const sortVal = document.getElementById('q-sort')?.value || 'created_desc'
   const [sortBy, sortDir] = sortVal.includes('_') ? [sortVal.slice(0, sortVal.lastIndexOf('_')), sortVal.slice(sortVal.lastIndexOf('_')+1)] : ['created', 'desc']
-  const params = new URLSearchParams({ limit: qPageSize, offset: qPage * qPageSize, sort: sortBy, dir: sortDir })
-  if (filterStatus) params.set('status', filterStatus)
 
-  const [statsRes, tasksRes] = await Promise.all([
+  const onceParams = new URLSearchParams({ limit: qPageSize, offset: qPage * qPageSize, sort: sortBy, dir: sortDir, schedule_type: 'once' })
+  const recurParams = new URLSearchParams({ limit: '50', offset: '0', sort: 'created', dir: 'desc', schedule_type: 'recurring' })
+  if (filterStatus) { onceParams.set('status', filterStatus); recurParams.set('status', filterStatus) }
+
+  const [statsRes, tasksRes, recurRes] = await Promise.all([
     fetch('/queue/stats').then(r => r.json()).catch(() => ({})),
-    fetch(`/queue?${params}`).then(r => r.json()).catch(() => ({ tasks: [], total: 0 })),
+    fetch(`/queue?${onceParams}`).then(r => r.json()).catch(() => ({ tasks: [], total: 0 })),
+    fetch(`/queue?${recurParams}`).then(r => r.json()).catch(() => ({ tasks: [], total: 0 })),
   ])
 
   document.getElementById('q-stat-scheduled').textContent = `${statsRes.scheduled ?? 0} scheduled`
@@ -1150,8 +1163,79 @@ async function refreshQueue() {
   const total = tasksRes.total ?? 0
   const totalPages = Math.max(1, Math.ceil(total / qPageSize))
 
+  renderRecurringList(recurRes.tasks ?? [])
   renderTaskList(tasks)
   renderPagination(total, totalPages)
+}
+
+function renderRecurringList(tasks) {
+  const el = document.getElementById('q-recurring-list')
+  if (!tasks.length) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:12px;font-style:italic;padding:8px 0">No recurring tasks</div>'
+    return
+  }
+
+  // Group by origin_id
+  const groups = new Map()
+  for (const t of tasks) {
+    const key = t.origin_id ?? t.id
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(t)
+  }
+
+  el.innerHTML = Array.from(groups.entries()).map(([originId, runs]) => {
+    // Separate scheduled-next-run sentinel from actual completed/running runs
+    const scheduled = runs.find(r => r.status === 'scheduled')
+    const execRuns  = runs.filter(r => r.status !== 'scheduled').slice(0, 5) // show last 5 runs
+    const rep = scheduled ?? runs[0]
+    const expanded = qExpanded.has(`r-${originId}`)
+
+    return `<div id="recurring-row-${originId}" style="border-bottom:1px solid var(--border)">
+      <div style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:10px 0;cursor:pointer" onclick="qToggleExpand('r-${originId}', event)">
+        <div>
+          <div style="font-size:13px;color:var(--text);display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <span style="color:var(--muted);font-size:11px;user-select:none">${expanded ? '▾' : '▸'}</span>
+            ${escHtml(qDescPreview(rep.description))}
+            ${scheduleChip(rep)}
+          </div>
+          <div style="color:var(--muted);font-size:11px;margin-top:3px;padding-left:18px">
+            ${execRuns.length} run${execRuns.length!==1?'s':''}${execRuns[0]?.finished_at ? ` · last ${qTimeSince(execRuns[0].finished_at)}` : ''}${execRuns[0]?.started_at && execRuns[0]?.finished_at ? ` · ${qDuration(execRuns[0].started_at, execRuns[0].finished_at)}` : ''}
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center" onclick="event.stopPropagation()">
+          ${scheduled ? qBadge('scheduled') : (execRuns[0] ? qBadge(execRuns[0].status) : '')}
+          ${rep.status !== 'running' ? `<button onclick="queueDeleteTask(${rep.id})" style="background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:4px;padding:2px 7px;cursor:pointer;font-size:11px;font-family:inherit" title="Delete task">Delete</button>` : ''}
+        </div>
+      </div>
+      <div id="task-expand-r-${originId}" style="display:${expanded ? 'block' : 'none'};padding:0 0 12px 18px">
+        ${expanded ? renderRecurringRuns(execRuns, rep) : ''}
+      </div>
+    </div>`
+  }).join('')
+}
+
+function renderRecurringRuns(runs, rep) {
+  if (!runs.length) return '<div style="color:var(--muted);font-size:11px;font-style:italic">No completed runs yet</div>'
+  let html = '<div style="display:flex;flex-direction:column;gap:6px">'
+  for (const r of runs) {
+    const hasSession = !!r.session_path
+    html += `<div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:${qExpanded.has(r.id) ? '8px' : '0'}">
+        <div style="font-size:11px;color:var(--muted);cursor:pointer" onclick="qToggleExpand(${r.id}, event)">
+          <span style="user-select:none">${qExpanded.has(r.id) ? '▾' : '▸'}</span>
+          <span style="font-family:var(--mono);color:var(--text)">${r.workspace_path ? r.workspace_path.split('/').pop() : (r.started_at ? new Date(r.started_at).toLocaleString() : `#${r.id}`)}</span>
+          ${r.started_at && r.finished_at ? `<span style="margin-left:8px">${qDuration(r.started_at, r.finished_at)}</span>` : ''}
+          ${r.tokens_used ? `<span style="margin-left:8px">${r.tokens_used.toLocaleString()} tok</span>` : ''}
+        </div>
+        ${qBadge(r.status)}
+      </div>
+      <div id="task-expand-${r.id}" style="display:${qExpanded.has(r.id) ? 'block' : 'none'}">
+        ${qExpanded.has(r.id) ? renderTaskDetail(r, hasSession) : ''}
+      </div>
+    </div>`
+  }
+  html += '</div>'
+  return html
 }
 
 function renderTaskList(tasks) {
