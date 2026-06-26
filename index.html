@@ -1052,7 +1052,7 @@ async function loadProjects() {
   const sel = document.getElementById('q-cwd-select')
   const projects = data?.projects ?? []
   sel.innerHTML =
-    `<option value="">— home dir (blank) —</option>` +
+    `<option value="">— task workspace (default) —</option>` +
     projects.map(p => {
       const home = data?.home ?? ''
       const label = home ? p.cwd.replace(home + '/', '~/').replace(home, '~') : p.cwd
