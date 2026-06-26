@@ -171,7 +171,7 @@
 <header>
   <div>
     <h1>restwalker</h1>
-    <span class="sub">Idle-time Claude task runner</span>
+    <span class="sub">Don't waste your Max plan — put idle tokens to work</span>
   </div>
   <div class="header-right">
     <span class="ts" id="refresh-ts"></span>
@@ -240,7 +240,11 @@
 <main id="queue-panel" style="display:none">
   <div class="section" style="margin-bottom:16px">
     <h2>Add task to queue</h2>
-    <textarea id="q-desc" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-family:inherit;font-size:13px;resize:vertical;min-height:64px;box-sizing:border-box" placeholder="What should Claude do overnight?&#10;e.g. Add integration tests for the ledger service in ~/dev/agentnet"></textarea>
+    <div style="background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.2);border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:12px;line-height:1.6;color:#a5b4fc">
+      <strong style="color:#c7d2fe">Tip:</strong> Best added from Claude Code via MCP — just ask Claude to queue a task for you while you sleep.<br>
+      <code style="font-size:11px;color:#818cf8;background:rgba(0,0,0,.3);padding:1px 5px;border-radius:3px">queue_add</code> tool is available in Claude Code once the MCP server is registered.
+    </div>
+    <textarea id="q-desc" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-family:inherit;font-size:13px;resize:vertical;min-height:64px;box-sizing:border-box" placeholder="What should Claude do while you sleep?&#10;e.g. Add integration tests for the ledger service in ~/dev/agentnet"></textarea>
     <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
       <span style="color:var(--muted);white-space:nowrap;font-size:12px">cwd:</span>
       <select id="q-cwd-select" onchange="qCwdSelectChange()" style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-family:inherit;font-size:13px;cursor:pointer">
@@ -267,16 +271,34 @@
   </div>
 
   <div class="section" style="margin-bottom:16px">
-    <h2 style="display:flex;justify-content:space-between;align-items:center">
-      Task queue
-      <span style="font-size:10px;font-weight:400;letter-spacing:0">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+      <h2 style="margin:0;text-transform:uppercase;font-size:11px;font-weight:600;color:var(--muted);letter-spacing:.8px">Task Queue</h2>
+      <span style="font-size:10px;font-weight:400">
         <span id="q-stat-scheduled" style="color:#a78bfa">0 scheduled</span> ·
         <span id="q-stat-pending" style="color:#f59e0b">0 pending</span> ·
         <span id="q-stat-running" style="color:#3b82f6">0 running</span> ·
         <span id="q-stat-done" style="color:#22c55e">0 done</span> ·
         <span id="q-stat-failed" style="color:#ef4444">0 failed</span>
       </span>
-    </h2>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+      <select id="q-filter-status" onchange="qPage=0;refreshQueue()" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:5px 8px;font-size:12px;cursor:pointer;font-family:inherit">
+        <option value="">All statuses</option>
+        <option value="pending">Pending</option>
+        <option value="running">Running</option>
+        <option value="scheduled">Scheduled</option>
+        <option value="done">Done</option>
+        <option value="failed">Failed</option>
+        <option value="cancelled">Cancelled</option>
+      </select>
+      <select id="q-sort" onchange="qPage=0;refreshQueue()" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:5px 8px;font-size:12px;cursor:pointer;font-family:inherit">
+        <option value="created_desc">Newest first</option>
+        <option value="created_asc">Oldest first</option>
+        <option value="finished_desc">Recently finished</option>
+        <option value="duration_desc">Longest run</option>
+      </select>
+      <button onclick="refreshQueue()" style="background:var(--card);border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:4px" title="Refresh task list">↻ Refresh</button>
+    </div>
     <div id="q-task-list"><div style="color:var(--muted);text-align:center;padding:20px;font-style:italic">No tasks yet</div></div>
     <div id="q-pagination"></div>
   </div>
@@ -932,6 +954,14 @@ function scheduleChip(t) {
   return `<span style="font-size:10px;background:rgba(167,139,250,.15);color:#a78bfa;padding:1px 6px;border-radius:3px;margin-left:4px">${label}</span>`
 }
 
+function qDuration(startIso, endIso) {
+  if (!startIso || !endIso) return ''
+  const s = (new Date(endIso).getTime() - new Date(startIso).getTime()) / 1000
+  if (s < 60) return `${Math.round(s)}s`
+  if (s < 3600) return `${Math.floor(s/60)}m ${Math.round(s%60)}s`
+  return `${Math.floor(s/3600)}h ${Math.floor((s%3600)/60)}m`
+}
+
 function qTimeSince(iso) {
   if (!iso) return ''
   const d = (Date.now() - new Date(iso).getTime()) / 1000
@@ -954,9 +984,15 @@ function qBadge(status) {
 }
 
 async function refreshQueue() {
+  const filterStatus = document.getElementById('q-filter-status')?.value || ''
+  const sortVal = document.getElementById('q-sort')?.value || 'created_desc'
+  const [sortBy, sortDir] = sortVal.includes('_') ? [sortVal.slice(0, sortVal.lastIndexOf('_')), sortVal.slice(sortVal.lastIndexOf('_')+1)] : ['created', 'desc']
+  const params = new URLSearchParams({ limit: qPageSize, offset: qPage * qPageSize, sort: sortBy, dir: sortDir })
+  if (filterStatus) params.set('status', filterStatus)
+
   const [statsRes, tasksRes] = await Promise.all([
     fetch('/queue/stats').then(r => r.json()).catch(() => ({})),
-    fetch(`/queue?limit=${qPageSize}&offset=${qPage * qPageSize}`).then(r => r.json()).catch(() => ({ tasks: [], total: 0 })),
+    fetch(`/queue?${params}`).then(r => r.json()).catch(() => ({ tasks: [], total: 0 })),
   ])
 
   document.getElementById('q-stat-scheduled').textContent = `${statsRes.scheduled ?? 0} scheduled`
@@ -994,13 +1030,13 @@ function renderTaskList(tasks) {
             ${scheduleChip(t)}
           </div>
           <div style="color:var(--muted);font-size:11px;margin-top:3px;padding-left:18px">
-            ${t.cwd ? `<span>${t.cwd}</span> · ` : ''}${(() => { const p = _providers.find(x => x.id === t.provider_id) || _providers.find(x => x.is_default); return p ? `<span style="color:#94a3b8">${escHtml(p.name)}</span> · ` : '' })()}${t.model ? `<span style="color:#818cf8">${t.model.replace('claude-','')}</span> · ` : ''}added ${qTimeSince(t.created_at)}${t.finished_at ? ` · finished ${qTimeSince(t.finished_at)}` : ''}${t.tool_calls ? ` · ${t.tool_calls} tools` : ''}${t.tokens_used ? ` · ${t.tokens_used.toLocaleString()} tok` : ''}
+            ${t.cwd ? `<span>${t.cwd}</span> · ` : ''}${(() => { const p = _providers.find(x => x.id === t.provider_id) || _providers.find(x => x.is_default); return p ? `<span style="color:#94a3b8">${escHtml(p.name)}</span> · ` : '' })()}${t.model ? `<span style="color:#818cf8">${t.model.replace('claude-','')}</span> · ` : ''}added ${qTimeSince(t.created_at)}${t.started_at && !t.finished_at ? ` · <span style="color:#3b82f6">running ${qTimeSince(t.started_at).replace(' ago','')}</span>` : ''}${t.finished_at ? ` · finished ${qTimeSince(t.finished_at)}` : ''}${t.started_at && t.finished_at ? ` · <span style="color:var(--muted)" title="Execution time">${qDuration(t.started_at, t.finished_at)}</span>` : ''}${t.tool_calls ? ` · ${t.tool_calls} tools` : ''}${t.tokens_used ? ` · ${t.tokens_used.toLocaleString()} tok` : ''}
           </div>
         </div>
         <div style="display:flex;gap:6px;align-items:center" onclick="event.stopPropagation()">
           ${qBadge(t.status)}
           ${t.status === 'pending' ? `<button id="force-${t.id}" onclick="queueForceRun(${t.id})" style="background:#f59e0b;color:#0f1117;border:none;border-radius:4px;padding:3px 7px;cursor:pointer;font-size:11px;font-weight:600">▶</button>` : ''}
-          ${t.status !== 'running' ? `<button onclick="queueDeleteTask(${t.id})" style="background:#ef4444;color:white;border:none;border-radius:4px;padding:3px 7px;cursor:pointer;font-size:11px" title="Delete task">✕</button>` : ''}
+          ${t.status !== 'running' ? `<button onclick="queueDeleteTask(${t.id})" style="background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:4px;padding:2px 7px;cursor:pointer;font-size:11px;font-family:inherit" title="Delete task">Delete</button>` : ''}
         </div>
       </div>
       <div id="task-expand-${t.id}" style="display:${expanded ? 'block' : 'none'};padding:0 0 12px 38px">

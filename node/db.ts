@@ -321,15 +321,30 @@ export function getScheduledDueTasks(): Task[] {
     .all()
 }
 
-export function getTasks(limit = 25, offset = 0): Task[] {
+export function getTasks(limit = 25, offset = 0, opts?: {
+  status?: TaskStatus; sort?: 'created' | 'finished' | 'duration'; dir?: 'asc' | 'desc'
+}): Task[] {
+  const { status, sort = 'created', dir = 'desc' } = opts ?? {}
+  const orderFn = dir === 'asc' ? asc : desc
+  const orderExpr = sort === 'finished'
+    ? orderFn(schema.tasks.finished_at)
+    : sort === 'duration'
+    ? orderFn(sql`(unixepoch(finished_at) - unixepoch(started_at))`)
+    : orderFn(schema.tasks.id)
+  if (status) {
+    return db.select().from(schema.tasks)
+      .where(eq(schema.tasks.status, status))
+      .orderBy(orderExpr).limit(limit).offset(offset).all()
+  }
   return db.select().from(schema.tasks)
-    .orderBy(desc(schema.tasks.id))
-    .limit(limit)
-    .offset(offset)
-    .all()
+    .orderBy(orderExpr).limit(limit).offset(offset).all()
 }
 
-export function getTaskCount(): number {
+export function getTaskCount(status?: TaskStatus): number {
+  if (status) {
+    return db.select({ n: sql<number>`count(*)` }).from(schema.tasks)
+      .where(eq(schema.tasks.status, status)).get()!.n
+  }
   return db.select({ n: sql<number>`count(*)` }).from(schema.tasks).get()!.n
 }
 

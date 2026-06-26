@@ -539,12 +539,15 @@ app.get('/queue/stats', {
 app.get('/queue', {
   schema: {
     tags: ['queue'],
-    summary: 'List tasks with pagination',
+    summary: 'List tasks with pagination, filtering, and sorting',
     querystring: {
       type: 'object',
       properties: {
         limit:  { type: 'integer', default: 25, minimum: 1, maximum: 100 },
         offset: { type: 'integer', default: 0,  minimum: 0 },
+        status: { type: 'string', enum: ['pending','running','scheduled','done','failed','cancelled'] },
+        sort:   { type: 'string', enum: ['created', 'finished', 'duration'], default: 'created' },
+        dir:    { type: 'string', enum: ['asc', 'desc'], default: 'desc' },
       },
     },
     response: {
@@ -561,7 +564,10 @@ app.get('/queue', {
   const q      = req.query as Record<string, string>
   const limit  = Math.min(parseInt(q.limit  ?? '25'), 100)
   const offset = Math.max(parseInt(q.offset ?? '0'),  0)
-  return { tasks: db.getTasks(limit, offset), total: db.getTaskCount() }
+  const status = q.status as db.TaskStatus | undefined
+  const sort   = (q.sort as 'created' | 'finished' | 'duration') || 'created'
+  const dir    = (q.dir  as 'asc' | 'desc') || 'desc'
+  return { tasks: db.getTasks(limit, offset, { status, sort, dir }), total: db.getTaskCount(status) }
 })
 
 app.get('/queue/:id', {
