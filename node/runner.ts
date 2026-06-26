@@ -8,6 +8,9 @@ import * as db from './db.js'
 import * as scheduler from './scheduler.js'
 import { findSessionJsonl, analyzeSession } from './session.js'
 
+let _log: { info: (s: string) => void; warn: (s: string) => void } = { info: console.log, warn: console.warn }
+export function setLogger(l: typeof _log) { _log = l }
+
 // Loaded from DB at task-run time so user edits take effect immediately
 
 const require = createRequire(import.meta.url)
@@ -43,10 +46,10 @@ async function gateOpen(): Promise<boolean> {
     const staleS = parseFloat(cfg.CACHE_STALE_MIN) * 60
     const usage  = await scheduler.readUsage({ cacheStaleS: staleS })
     const result = await scheduler.canRun(usage, cfg)
-    if (!result.ok) console.log(`[queue] gate: ${result.reason}`)
+    if (!result.ok) _log.info(`[queue] gate: ${result.reason}`)
     return result.ok
   } catch (e) {
-    console.warn('[queue] gate check error:', (e as Error).message)
+    _log.warn('[queue] gate check error: ' + (e as Error).message)
     return false
   }
 }
@@ -62,7 +65,7 @@ async function processTask(input: QueuePayload): Promise<void> {
   const task = db.getTask(input.taskId)
   if (!task || task.status === 'cancelled') return
 
-  console.log(`[queue] starting task #${task.id}: ${task.description.slice(0, 80)}`)
+  _log.info(`[queue] starting task #${task.id}: ${task.description.slice(0, 80)}`)
   db.setTaskRunning(task.id)
 
   const startedAt = Date.now()
@@ -87,7 +90,7 @@ async function processTask(input: QueuePayload): Promise<void> {
 
   return new Promise((resolve, reject) => {
     const { command, args } = resolveProvider(task, workspacePath)
-    console.log(`[queue] spawn: ${command} ${args.map(a => a.length > 60 ? a.slice(0,60)+'…' : a).join(' ')}`)
+    _log.info(`[queue] spawn: ${command} ${args.map(a => a.length > 60 ? a.slice(0,60)+'…' : a).join(' ')}`)
     const proc = spawn(command, args, { cwd, env: { ...process.env }, stdio: ['ignore', 'pipe', 'pipe'] })
 
     const stdout: string[] = []
@@ -97,7 +100,7 @@ async function processTask(input: QueuePayload): Promise<void> {
 
     proc.on('close', (code) => {
       const result = stdout.join('').trim() || stderr.join('').trim()
-      console.log(`[queue] task #${task.id} exited code ${code}`)
+      _log.info(`[queue] task #${task.id} exited code ${code}`)
 
       if (code !== 0) {
         db.setTaskFailed(task.id, `exit ${code}: ${result.slice(0, 500)}`)
@@ -120,7 +123,7 @@ async function processTask(input: QueuePayload): Promise<void> {
           sessionId      = analysis.sessionId
           artifactDecls  = analysis.artifacts
         } catch (e) {
-          console.warn('[queue] session analysis error:', (e as Error).message)
+          _log.warn('[queue] session analysis error: ' + (e as Error).message)
         }
       }
 
@@ -136,14 +139,14 @@ async function processTask(input: QueuePayload): Promise<void> {
       if (artifactDecls.length) {
         try {
           const saved = db.saveArtifacts(task.id, artifactDecls)
-          console.log(`[queue] task #${task.id} saved ${saved.length} artifact(s)`)
+          _log.info(`[queue] task #${task.id} saved ${saved.length} artifact(s)`)
         } catch (e) {
-          console.warn('[queue] artifact save error:', (e as Error).message)
+          _log.warn('[queue] artifact save error: ' + (e as Error).message)
         }
       }
 
       const next = db.createNextRun(task)
-      if (next) console.log(`[queue] next run of #${task.id} scheduled at ${next.next_run_at}`)
+      if (next) _log.info(`[queue] next run of #${task.id} scheduled at ${next.next_run_at}`)
 
       resolve()
     })

@@ -4,6 +4,9 @@ import { join } from 'path'
 import { readFileSync, statSync, existsSync } from 'fs'
 import type { Settings } from './db.js'
 
+let _log: { info: (s: string) => void; warn: (s: string) => void } = { info: console.log, warn: console.warn }
+export function setLogger(l: typeof _log) { _log = l }
+
 export const USAGE_CACHE: string = process.env.CLAUDE_USAGE_CACHE
   ?? join(homedir(), '.claude', '.usage_cache.json')
 
@@ -51,12 +54,12 @@ export function readKeychainToken(): string | null {
     const data = JSON.parse(raw) as { claudeAiOauth?: KeychainOAuth }
     const oauth = data.claudeAiOauth ?? {}
     if (oauth.expiresAt && Date.now() > oauth.expiresAt) {
-      console.warn('[scheduler] OAuth token expired — waiting for Claude Code to refresh it')
+      _log.warn('[scheduler] OAuth token expired — waiting for Claude Code to refresh it')
       return null
     }
     return oauth.accessToken ?? null
   } catch (e) {
-    console.warn('[scheduler] keychain read failed:', (e as Error).message)
+    _log.warn('[scheduler] keychain read failed: ' + (e as Error).message)
     return null
   }
 }
@@ -73,15 +76,15 @@ export async function fetchUsageFromApi(): Promise<UsageData | null> {
       signal: AbortSignal.timeout(5000),
     })
     if (resp.status === 401) {
-      console.warn('[scheduler] API 401 — token expired, waiting for Claude Code to refresh it')
+      _log.warn('[scheduler] API 401 — token expired, waiting for Claude Code to refresh it')
       return null
     }
     if (resp.status === 429) {
-      console.warn('[scheduler] API 429 — rate limited, will retry next poll')
+      _log.warn('[scheduler] API 429 — rate limited, will retry next poll')
       return null
     }
     if (!resp.ok) {
-      console.warn(`[scheduler] API HTTP ${resp.status}`)
+      _log.warn(`[scheduler] API HTTP ${resp.status}`)
       return null
     }
     const data = await resp.json() as ApiUsageResponse
@@ -98,7 +101,7 @@ export async function fetchUsageFromApi(): Promise<UsageData | null> {
       source:           'api',
     }
   } catch (e) {
-    console.warn('[scheduler] API fetch failed:', (e as Error).message)
+    _log.warn('[scheduler] API fetch failed: ' + (e as Error).message)
     return null
   }
 }
@@ -129,7 +132,7 @@ function readUsageFromFile(cacheStaleS = 1800): UsageData | null {
       source:           'file',
     }
   } catch (e) {
-    console.warn('[scheduler] file read failed:', (e as Error).message)
+    _log.warn('[scheduler] file read failed: ' + (e as Error).message)
     return null
   }
 }

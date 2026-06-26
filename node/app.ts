@@ -11,7 +11,8 @@ import { spawn } from 'child_process'
 
 import * as db from './db.js'
 import * as scheduler from './scheduler.js'
-import { startQueue, setQueue, enqueueTask, forceRunTask } from './runner.js'
+import { startQueue, setQueue, enqueueTask, forceRunTask, setLogger as setRunnerLogger } from './runner.js'
+import { setLogger as setSchedulerLogger } from './scheduler.js'
 import type { Settings } from './db.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -164,6 +165,7 @@ app.get('/meta', {
           installPath: { type: 'string' },
           nodeVersion:  { type: 'string' },
           port:         { type: 'integer' },
+          logPath:      { type: 'string' },
         },
       },
     },
@@ -172,6 +174,7 @@ app.get('/meta', {
   installPath: join(__dirname, '..'),  // parent of node/ = repo root
   nodeVersion: process.version,
   port: PORT,
+  logPath: LOG_FILE,
 }))
 
 // ── Usage ──────────────────────────────────────────────────────────────────────
@@ -1083,3 +1086,5 @@ app.log.info(`[restwalker] watching ${scheduler.USAGE_CACHE}`)
 startPoller()
 startScheduleChecker()
 setQueue(startQueue(msg => app.log.info(msg)))
+setRunnerLogger({ info: (s) => app.log.info(s), warn: (s) => app.log.warn(s) })
+setSchedulerLogger({ info: (s) => app.log.info(s), warn: (s) => app.log.warn(s) })
