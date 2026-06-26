@@ -28,11 +28,12 @@ export function addProvider(name: string, command: string, argsTemplate: string)
     .get()!
 }
 
-export function updateProvider(id: number, u: Partial<Pick<Provider, 'name' | 'command' | 'args_template'>>): void {
+export function updateProvider(id: number, u: Partial<Pick<Provider, 'name' | 'command' | 'args_template' | 'loop_type'>>): void {
   const set: Partial<typeof schema.providers.$inferInsert> = {}
   if (u.name          !== undefined) set.name          = u.name
   if (u.command       !== undefined) set.command       = u.command
   if (u.args_template !== undefined) set.args_template = u.args_template
+  if (u.loop_type     !== undefined) set.loop_type     = u.loop_type
   if (!Object.keys(set).length) return
   db.update(schema.providers).set(set).where(eq(schema.providers.id, id)).run()
 }

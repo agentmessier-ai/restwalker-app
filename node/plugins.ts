@@ -10,16 +10,48 @@ export interface PostTaskContext { task: Task; workspacePath: string; status: 'd
 export interface OnArtifactContext { task: Task; artifactPath: string; description: string; mimeType: string }
 export interface OnIdleContext   { reason: string }
 
+export interface OnTurnContext {
+  task:        Task
+  turn:        number
+  inputTokens: number
+}
+
+export interface OnToolCallContext {
+  task:   Task
+  tool:   string
+  input:  Record<string, unknown>
+  callId: string
+}
+
+export interface OnToolResultContext {
+  task:    Task
+  tool:    string
+  callId:  string
+  result:  string
+  isError: boolean
+}
+
+export interface OnMessageContext {
+  task:      Task
+  content:   string
+  thinking?: string
+}
+
 export type HookName = 'pre_task' | 'post_task' | 'on_artifact' | 'on_idle'
+  | 'on_turn' | 'on_tool_call' | 'on_tool_result' | 'on_message'
 type HookHandler<T> = (ctx: T) => Promise<void> | void
 
 // ── Plugin interface ───────────────────────────────────────────────────────────
 
 export interface PluginContext {
-  on(hook: 'pre_task',    handler: HookHandler<PreTaskContext>):    void
-  on(hook: 'post_task',   handler: HookHandler<PostTaskContext>):   void
-  on(hook: 'on_artifact', handler: HookHandler<OnArtifactContext>): void
-  on(hook: 'on_idle',     handler: HookHandler<OnIdleContext>):     void
+  on(hook: 'pre_task',       handler: HookHandler<PreTaskContext>):       void
+  on(hook: 'post_task',      handler: HookHandler<PostTaskContext>):      void
+  on(hook: 'on_artifact',    handler: HookHandler<OnArtifactContext>):    void
+  on(hook: 'on_idle',        handler: HookHandler<OnIdleContext>):        void
+  on(hook: 'on_turn',        handler: HookHandler<OnTurnContext>):        void
+  on(hook: 'on_tool_call',   handler: HookHandler<OnToolCallContext>):    void
+  on(hook: 'on_tool_result', handler: HookHandler<OnToolResultContext>):  void
+  on(hook: 'on_message',     handler: HookHandler<OnMessageContext>):     void
 }
 
 export interface Plugin {

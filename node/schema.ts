@@ -23,6 +23,7 @@ export const providers = sqliteTable('providers', {
   command:      text('command').notNull(),
   args_template:text('args_template').notNull().default('[]'),
   is_default:   integer('is_default').notNull().default(0),
+  loop_type:    text('loop_type').notNull().default('claude_print'),
   created_at:   text('created_at').notNull().default(NOW),
 })
 

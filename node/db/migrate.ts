@@ -107,6 +107,11 @@ export function migrate(): void {
   if (cols.length && !cols.includes('origin_id'))     client.exec('ALTER TABLE tasks ADD COLUMN origin_id INTEGER')
   if (cols.length && !cols.includes('prompt_id'))     client.exec('ALTER TABLE tasks ADD COLUMN prompt_id INTEGER')
 
+  const providerCols = (client.prepare('PRAGMA table_info(providers)').all() as { name: string }[]).map(c => c.name)
+  if (providerCols.length && !providerCols.includes('loop_type')) {
+    client.exec("ALTER TABLE providers ADD COLUMN loop_type TEXT NOT NULL DEFAULT 'claude_print'")
+  }
+
   const taskCols = (client.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).map(c => c.name)
   if (!taskCols.includes('webhook_pre_url'))    client.exec('ALTER TABLE tasks ADD COLUMN webhook_pre_url TEXT')
   if (!taskCols.includes('webhook_post_url'))   client.exec('ALTER TABLE tasks ADD COLUMN webhook_post_url TEXT')

@@ -2,7 +2,7 @@ import { readFileSync, existsSync, writeFileSync } from 'fs'
 import { join, dirname, resolve as pathResolve } from 'path'
 import { createRequire } from 'module'
 import { homedir } from 'os'
-import type { Plugin, PluginContext, PreTaskContext, PostTaskContext, OnArtifactContext, OnIdleContext, HookName } from './plugins.js'
+import type { Plugin, PluginContext, PreTaskContext, PostTaskContext, OnArtifactContext, OnIdleContext, OnTurnContext, OnToolCallContext, OnToolResultContext, OnMessageContext, HookName } from './plugins.js'
 
 const _require = createRequire(import.meta.url)
 
@@ -49,29 +49,21 @@ export interface OpenClawPluginApi {
 // ── Hook mapping: OpenClaw hook name → restwalker HookName(s) ─────────────────
 
 const HOOK_MAP: Record<string, HookName[]> = {
-  // pre_task equivalents
   before_agent_run:       ['pre_task'],
-  agent_turn_prepare:     ['pre_task'],
+  agent_turn_prepare:     ['on_turn'],
   before_prompt_build:    ['pre_task'],
   session_start:          ['pre_task'],
-
-  // post_task equivalents
-  before_agent_reply:     ['post_task'],
+  before_agent_reply:     ['on_message'],
   before_agent_finalize:  ['post_task'],
   agent_end:              ['post_task'],
   session_end:            ['post_task'],
-
-  // on_artifact equivalents
-  after_tool_call:        ['on_artifact'],
-  tool_result_persist:    ['on_artifact'],
-
-  // on_idle equivalents
+  before_tool_call:       ['on_tool_call'],
+  after_tool_call:        ['on_tool_result'],
+  tool_result_persist:    ['on_tool_result'],
   gateway_start:          ['on_idle'],
   gateway_stop:           ['on_idle'],
-
-  // unmapped — acknowledged but no-op
+  // still no-op
   before_model_resolve:   [],
-  before_tool_call:       [],
   resolve_exec_env:       [],
   inbound_claim:          [],
   message_received:       [],
@@ -144,6 +136,22 @@ function toIdleCtx(ctx: OnIdleContext): unknown {
   }
 }
 
+function toToolCallCtx(ctx: OnToolCallContext): unknown {
+  return { toolName: ctx.tool, toolInput: ctx.input, callId: ctx.callId, task: { id: ctx.task.id } }
+}
+
+function toToolResultCtx(ctx: OnToolResultContext): unknown {
+  return { toolName: ctx.tool, callId: ctx.callId, result: ctx.result, isError: ctx.isError, task: { id: ctx.task.id } }
+}
+
+function toTurnCtx(ctx: OnTurnContext): unknown {
+  return { turn: ctx.turn, inputTokens: ctx.inputTokens, task: { id: ctx.task.id } }
+}
+
+function toMessageCtx(ctx: OnMessageContext): unknown {
+  return { content: ctx.content, thinking: ctx.thinking, task: { id: ctx.task.id } }
+}
+
 // ── Logger ────────────────────────────────────────────────────────────────────
 
 let _log = { info: console.log, warn: console.warn }
@@ -184,6 +192,14 @@ export function adaptOpenClawPlugin(
               ctx.on('on_artifact', async (rwCtx) => { await handler(toArtifactCtx(rwCtx)) })
             } else if (rwHook === 'on_idle') {
               ctx.on('on_idle', async (rwCtx) => { await handler(toIdleCtx(rwCtx)) })
+            } else if (rwHook === 'on_turn') {
+              ctx.on('on_turn', async (rwCtx) => { await handler(toTurnCtx(rwCtx)) })
+            } else if (rwHook === 'on_tool_call') {
+              ctx.on('on_tool_call', async (rwCtx) => { await handler(toToolCallCtx(rwCtx)) })
+            } else if (rwHook === 'on_tool_result') {
+              ctx.on('on_tool_result', async (rwCtx) => { await handler(toToolResultCtx(rwCtx)) })
+            } else if (rwHook === 'on_message') {
+              ctx.on('on_message', async (rwCtx) => { await handler(toMessageCtx(rwCtx)) })
             }
           }
         },

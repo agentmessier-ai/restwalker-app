@@ -1,40 +1,17 @@
 import Queue from 'better-queue'
 import { createRequire } from 'module'
-import { spawn } from 'child_process'
 import { join } from 'path'
 import { homedir } from 'os'
 import { mkdirSync, existsSync } from 'fs'
 import * as db from './db.js'
 import * as scheduler from './scheduler.js'
-import { findSessionJsonl, analyzeSession } from './session.js'
 import { plugins } from './plugins.js'
 import * as gbrain from './gbrain.js'
+import type { AgentLoopContext, AgentLoopResult, LoopType } from './agent-loop.js'
+import { createLoop } from './loops/index.js'
 
 let _log: { info: (s: string) => void; warn: (s: string) => void } = { info: console.log, warn: console.warn }
 export function setLogger(l: typeof _log) { _log = l }
-
-// ── Provider resolution ────────────────────────────────────────────────────────
-
-function resolveProvider(task: db.Task, workspacePath: string, extraContext?: string): { command: string; args: string[] } {
-  const provider = task.provider_id
-    ? db.getProvider(task.provider_id)
-    : db.getDefaultProvider()
-  if (!provider) throw new Error('no agent provider configured')
-
-  const cwd   = task.cwd || workspacePath
-  const model = task.model || 'claude-sonnet-4-6'
-  const systemPrompt = db.getActiveSystemPrompt().content
-  const promptWithPreamble = systemPrompt + (extraContext ?? '') + task.description
-  let template: string[]
-  try { template = JSON.parse(provider.args_template) } catch { template = [provider.args_template] }
-
-  const args = template.map(a =>
-    a.replace(/\{\{task\}\}/g,  promptWithPreamble)
-     .replace(/\{\{model\}\}/g, model)
-     .replace(/\{\{cwd\}\}/g,   cwd)
-  )
-  return { command: provider.command, args }
-}
 
 // ── Workspace path builder ─────────────────────────────────────────────────────
 
@@ -47,75 +24,11 @@ function buildWorkspacePath(task: db.Task): string {
     .slice(0, 40)
   const ts = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15)
   if (task.schedule !== 'once') {
-    // Recurring: fixed base folder per origin, timestamped subfolders per run
     const originId = task.origin_id ?? task.id
     const base = join(db.WORKSPACE_DIR, `${originId}-${slug}`)
     return join(base, ts)
   }
   return join(db.WORKSPACE_DIR, `${task.id}-${slug}-${ts}`)
-}
-
-// ── Process spawner ────────────────────────────────────────────────────────────
-
-async function runProcess(
-  command: string,
-  args: string[],
-  cwd: string,
-  timeoutMs: number
-): Promise<{ stdout: string; stderr: string; code: number }> {
-  return new Promise((resolve, reject) => {
-    _log.info(`[queue] spawn: ${command} ${args.map(a => a.length > 60 ? a.slice(0,60)+'…' : a).join(' ')}`)
-    const proc = spawn(command, args, { cwd, env: { ...process.env }, stdio: ['ignore', 'pipe', 'pipe'] })
-
-    const killTimer = setTimeout(() => {
-      _log.warn(`[queue] process exceeded timeout (${timeoutMs}ms) — killing`)
-      proc.kill('SIGTERM')
-      setTimeout(() => proc.kill('SIGKILL'), 5000)
-    }, timeoutMs)
-
-    const stdoutBufs: string[] = []
-    const stderrBufs: string[] = []
-    proc.stdout.on('data', (d: Buffer) => stdoutBufs.push(d.toString()))
-    proc.stderr.on('data', (d: Buffer) => stderrBufs.push(d.toString()))
-
-    proc.on('close', (code) => {
-      clearTimeout(killTimer)
-      resolve({ stdout: stdoutBufs.join(''), stderr: stderrBufs.join(''), code: code ?? 1 })
-    })
-
-    proc.on('error', (e) => {
-      clearTimeout(killTimer)
-      reject(e)
-    })
-  })
-}
-
-// ── Output analyser ────────────────────────────────────────────────────────────
-
-async function analyzeOutput(
-  cwd: string,
-  startedAt: number,
-  _rawOutput: string
-): Promise<{ toolCalls: number; tokensUsed: number; sessionId: string | null; sessionPath: string | null; artifacts: { path: string; description: string }[] }> {
-  const sessionPath = findSessionJsonl(cwd, startedAt)
-  let toolCalls  = 0
-  let tokensUsed = 0
-  let sessionId: string | null = null
-  const artifacts: { path: string; description: string }[] = []
-
-  if (sessionPath) {
-    try {
-      const analysis = analyzeSession(sessionPath)
-      toolCalls  = analysis.toolCalls
-      tokensUsed = analysis.tokensUsed
-      sessionId  = analysis.sessionId
-      artifacts.push(...analysis.artifacts)
-    } catch (e) {
-      _log.warn('[queue] session analysis error: ' + (e as Error).message)
-    }
-  }
-
-  return { toolCalls, tokensUsed, sessionId, sessionPath, artifacts }
 }
 
 // ── Artifact saver ─────────────────────────────────────────────────────────────
@@ -190,16 +103,43 @@ async function processTask(input: QueuePayload): Promise<void> {
     enrichment = await gbrain.enrichTaskPrompt(task.description)
   }
 
-  const startedAt = Date.now()
-  const { command, args } = resolveProvider(task, workspacePath, enrichment ?? undefined)
-  const cwd = task.cwd || workspacePath
+  const provider = task.provider_id
+    ? db.getProvider(task.provider_id)
+    : db.getDefaultProvider()
+  if (!provider) {
+    const errMsg = 'no agent provider configured'
+    db.setTaskFailed(task.id, errMsg)
+    await plugins.invoke('post_task', { task, workspacePath, status: 'failed', tokensUsed: 0, toolCalls: 0, result: errMsg })
+    return
+  }
 
-  let stdout: string
-  let stderr: string
-  let code: number
+  const loopType = (provider.loop_type ?? 'claude_print') as LoopType
+  const loop = createLoop(loopType, getTaskTimeoutMs())
+
+  const loopCtx: AgentLoopContext = {
+    task,
+    workspacePath,
+    systemPrompt: db.getActiveSystemPrompt().content,
+    model: task.model || 'claude-sonnet-4-6',
+    extraContext: enrichment ?? undefined,
+    cwd: task.cwd || workspacePath,
+  }
+
+  let loopResult: AgentLoopResult
 
   try {
-    ;({ stdout, stderr, code } = await runProcess(command, args, cwd, getTaskTimeoutMs()))
+    loopResult = await loop.run(loopCtx, async (event) => {
+      if (event.type === 'turn_start') {
+        await plugins.invoke('on_turn', { task, turn: event.turn, inputTokens: event.inputTokens })
+      } else if (event.type === 'tool_call') {
+        await plugins.invoke('on_tool_call', { task, tool: event.tool, input: event.input, callId: event.callId })
+      } else if (event.type === 'tool_result') {
+        await plugins.invoke('on_tool_result', { task, tool: event.tool, callId: event.callId, result: event.result, isError: event.isError })
+      } else if (event.type === 'message') {
+        await plugins.invoke('on_message', { task, content: event.content, thinking: event.thinking })
+      }
+      // 'artifact' events are handled after loop completes (saveArtifactsForTask)
+    })
   } catch (e) {
     const errMsg = (e as Error).message
     db.setTaskFailed(task.id, errMsg)
@@ -207,30 +147,19 @@ async function processTask(input: QueuePayload): Promise<void> {
     return
   }
 
-  const result = (stdout || stderr).trim()
-  _log.info(`[queue] task #${task.id} exited code ${code}`)
-
-  if (code !== 0) {
-    const errResult = `exit ${code}: ${result.slice(0, 500)}`
-    db.setTaskFailed(task.id, errResult)
-    await plugins.invoke('post_task', { task, workspacePath, status: 'failed', tokensUsed: 0, toolCalls: 0, result })
-    return
-  }
-
-  const { toolCalls, tokensUsed, sessionId, sessionPath, artifacts } =
-    await analyzeOutput(cwd, startedAt, result)
+  _log.info(`[queue] task #${task.id} completed`)
 
   const { next } = db.completeTask(task.id, {
-    result:         result.slice(0, 1000),
-    session_id:     sessionId ?? undefined,
-    session_path:   sessionPath ?? undefined,
-    tool_calls:     toolCalls,
-    tokens_used:    tokensUsed,
+    result:         loopResult.result,
+    session_id:     loopResult.sessionId ?? undefined,
+    session_path:   loopResult.sessionPath ?? undefined,
+    tool_calls:     loopResult.toolCalls,
+    tokens_used:    loopResult.tokensUsed,
     workspace_path: workspacePath,
   })
 
-  await plugins.invoke('post_task', { task, workspacePath, status: 'done', tokensUsed, toolCalls, result })
-  if (artifacts.length) await saveArtifactsForTask(task, artifacts)
+  await plugins.invoke('post_task', { task, workspacePath, status: 'done', tokensUsed: loopResult.tokensUsed, toolCalls: loopResult.toolCalls, result: loopResult.result })
+  if (loopResult.artifacts.length) await saveArtifactsForTask(task, loopResult.artifacts)
   if (next) _log.info(`[queue] next run of #${task.id} scheduled as #${next.id} at ${next.next_run_at}`)
 }
 
