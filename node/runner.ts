@@ -4,7 +4,6 @@ import { spawn } from 'child_process'
 import { join } from 'path'
 import { homedir } from 'os'
 import { mkdirSync, existsSync } from 'fs'
-import https from 'https'
 import * as db from './db.js'
 import * as scheduler from './scheduler.js'
 import { findSessionJsonl, analyzeSession } from './session.js'
@@ -13,71 +12,6 @@ import * as gbrain from './gbrain.js'
 
 let _log: { info: (s: string) => void; warn: (s: string) => void } = { info: console.log, warn: console.warn }
 export function setLogger(l: typeof _log) { _log = l }
-
-// ── Webhook helper ─────────────────────────────────────────────────────────────
-
-async function callWebhook(
-  url: string,
-  payload: Record<string, unknown>,
-  opts: { timeoutMs: number; retries: number; ignoreSsl: boolean }
-): Promise<void> {
-  const agent = opts.ignoreSsl ? new https.Agent({ rejectUnauthorized: false }) : undefined
-  let lastErr: Error | null = null
-  for (let attempt = 0; attempt <= opts.retries; attempt++) {
-    try {
-      const ctrl = new AbortController()
-      const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs)
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        signal: ctrl.signal,
-        // @ts-ignore — Node fetch accepts agent
-        agent,
-      })
-      clearTimeout(timer)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      return
-    } catch (e) {
-      lastErr = e as Error
-      if (attempt < opts.retries) {
-        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)))
-      }
-    }
-  }
-  throw lastErr!
-}
-
-async function fireWebhook(
-  event: 'pre' | 'post',
-  task: db.Task,
-  workspacePath: string,
-  status?: string,
-  result?: string,
-  tokensUsed?: number,
-  toolCalls?: number
-): Promise<void> {
-  const url = event === 'pre' ? task.webhook_pre_url! : task.webhook_post_url!
-  const payload: Record<string, unknown> = { event, task_id: task.id, description: task.description }
-  if (event === 'post') {
-    payload.status        = status
-    payload.tokens_used   = tokensUsed
-    payload.tool_calls    = toolCalls
-    payload.workspace_path = workspacePath
-    payload.result        = result?.slice(0, 500)
-  }
-  try {
-    await callWebhook(url, payload, {
-      timeoutMs: task.webhook_timeout_ms ?? 10000,
-      retries:   task.webhook_retry      ?? 2,
-      ignoreSsl: (task.webhook_ignore_ssl ?? 0) === 1,
-    })
-    _log.info(`[queue] ${event}-webhook ok for task #${task.id}`)
-  } catch (e) {
-    _log.warn(`[queue] ${event}-webhook failed for task #${task.id}: ${(e as Error).message}`)
-    // Don't abort task — log and continue
-  }
-}
 
 // ── Provider resolution ────────────────────────────────────────────────────────
 
@@ -249,8 +183,6 @@ async function processTask(input: QueuePayload): Promise<void> {
 
   await plugins.invoke('pre_task', { task, workspacePath })
 
-  if (task.webhook_pre_url) await fireWebhook('pre', task, '')
-
   db.setTaskRunning(task.id)
 
   let enrichment: string | null = null
@@ -272,7 +204,6 @@ async function processTask(input: QueuePayload): Promise<void> {
     const errMsg = (e as Error).message
     db.setTaskFailed(task.id, errMsg)
     await plugins.invoke('post_task', { task, workspacePath, status: 'failed', tokensUsed: 0, toolCalls: 0, result: errMsg })
-    if (task.webhook_post_url) await fireWebhook('post', task, workspacePath, 'failed', errMsg, 0, 0)
     return
   }
 
@@ -283,7 +214,6 @@ async function processTask(input: QueuePayload): Promise<void> {
     const errResult = `exit ${code}: ${result.slice(0, 500)}`
     db.setTaskFailed(task.id, errResult)
     await plugins.invoke('post_task', { task, workspacePath, status: 'failed', tokensUsed: 0, toolCalls: 0, result })
-    if (task.webhook_post_url) await fireWebhook('post', task, workspacePath, 'failed', result, 0, 0)
     return
   }
 
@@ -301,7 +231,6 @@ async function processTask(input: QueuePayload): Promise<void> {
 
   await plugins.invoke('post_task', { task, workspacePath, status: 'done', tokensUsed, toolCalls, result })
   if (artifacts.length) await saveArtifactsForTask(task, artifacts)
-  if (task.webhook_post_url) await fireWebhook('post', task, workspacePath, 'done', result, tokensUsed, toolCalls)
   if (next) _log.info(`[queue] next run of #${task.id} scheduled as #${next.id} at ${next.next_run_at}`)
 }
 

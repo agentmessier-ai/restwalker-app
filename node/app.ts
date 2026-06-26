@@ -15,6 +15,7 @@ import { setLogger as setSchedulerLogger } from './scheduler.js'
 import { plugins } from './plugins.js'
 import { logTaskPlugin } from './plugins/log-task.js'
 import { gbrainPlugin } from './plugins/gbrain-plugin.js'
+import { webhookPlugin, setLogger as setWebhookLogger } from './plugins/webhook.js'
 import { setLogger as setGbrainLogger } from './gbrain.js'
 
 import healthRoutes       from './routes/health.js'
@@ -132,5 +133,7 @@ setRunnerLogger({ info: (s) => app.log.info(s), warn: (s) => app.log.warn(s) })
 setSchedulerLogger({ info: (s) => app.log.info(s), warn: (s) => app.log.warn(s) })
 plugins.setLogger({ info: (s) => app.log.info(s), warn: (s) => app.log.warn(s) })
 setGbrainLogger({ info: (s) => app.log.info(s), warn: (s) => app.log.warn(s) })
+setWebhookLogger({ info: (s) => app.log.info(s), warn: (s) => app.log.warn(s) })
+plugins.register(webhookPlugin)
 plugins.register(logTaskPlugin)
 plugins.register(gbrainPlugin)
