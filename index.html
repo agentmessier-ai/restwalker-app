@@ -937,7 +937,8 @@ async function refresh() {
 }
 
 async function init() {
-  // Trigger immediate sync before first paint so data is fresh
+  const startTab = window.location.hash === '#queue' ? 'queue' : 'dash'
+  if (startTab === 'queue') switchTab('queue', false)
   await fetch('/sync', { method: 'POST' }).catch(() => {});
   await refresh();
   setInterval(refresh, 60000);
@@ -1068,8 +1069,9 @@ async function loadModels() {
 
 let activeTab = 'dash'
 
-function switchTab(tab) {
+function switchTab(tab, pushState = true) {
   activeTab = tab
+  if (pushState) history.pushState({ tab }, '', tab === 'queue' ? '#queue' : '#')
   document.querySelector('main:not(#queue-panel)').style.display = tab === 'dash' ? '' : 'none'
   document.getElementById('queue-panel').style.display = tab === 'queue' ? '' : 'none'
   document.getElementById('tab-dash').style.cssText  = tab === 'dash'
@@ -1080,6 +1082,8 @@ function switchTab(tab) {
     : 'background:var(--blue);color:white;border:none;border-radius:6px;padding:6px 14px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;letter-spacing:0.01em;opacity:0.65'
   if (tab === 'queue') { loadProviders(); loadModels(); loadProjects(); refreshQueue() }
 }
+
+window.addEventListener('popstate', e => switchTab(e.state?.tab === 'queue' ? 'queue' : 'dash', false))
 
 const SCHEDULE_LABELS = { once:'', hourly:'⏰ hourly', daily:'📅 daily', weekly:'🗓 weekly', monthly:'📆 monthly' }
 
