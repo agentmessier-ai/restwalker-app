@@ -1218,8 +1218,9 @@ function renderRecurringList(tasks) {
 }
 
 function renderRecurringRuns(runs, rep) {
-  if (!runs.length) return '<div style="color:var(--muted);font-size:11px;font-style:italic">No completed runs yet</div>'
-  let html = '<div style="display:flex;flex-direction:column;gap:6px">'
+  const editBtn = `<button onclick="openRequeuePanel(${rep.id})" style="background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.25);color:#93c5fd;border-radius:5px;padding:4px 10px;font-size:11px;cursor:pointer;font-family:inherit;margin-bottom:8px">✎ Edit & Re-queue</button>`
+  if (!runs.length) return editBtn + '<div style="color:var(--muted);font-size:11px;font-style:italic">No completed runs yet</div>'
+  let html = editBtn + '<div style="display:flex;flex-direction:column;gap:6px">'
   for (const r of runs) {
     const hasSession = !!r.session_path
     html += `<div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 12px">
@@ -1305,6 +1306,11 @@ function renderTaskDetail(t, hasSession) {
       <button onclick="openFolder('${escHtml(t.workspace_path)}')" style="background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.25);color:#a5b4fc;border-radius:4px;padding:1px 7px;font-size:10px;cursor:pointer;font-family:inherit">Open in Finder</button>
     </div>`
   }
+
+  html += `<div style="margin-bottom:12px">
+    <button onclick="openRequeuePanel(${t.id})" style="background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.25);color:#93c5fd;border-radius:5px;padding:5px 12px;font-size:12px;cursor:pointer;font-family:inherit">✎ Edit & Re-queue</button>
+    ${t.prompt_id ? `<span style="font-size:10px;color:var(--muted);margin-left:8px">prompt #${t.prompt_id}</span>` : ''}
+  </div>`
 
   html += `<div style="margin-bottom:8px">
     <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:4px">Task</div>
@@ -1556,8 +1562,130 @@ async function queueForceRun(id) {
   }, 2000)
 }
 
+// ── Requeue panel ─────────────────────────────────────────────────────────────
+
+let _rqTaskId = null
+
+async function openRequeuePanel(taskId) {
+  _rqTaskId = taskId
+  const panel = document.getElementById('requeue-panel')
+  panel.style.display = 'flex'
+
+  const t = await fetch(`/queue/${taskId}`).then(r => r.json()).catch(() => null)
+  if (!t) return
+
+  document.getElementById('rq-content').value = t.description
+  document.getElementById('rq-schedule').value = t.schedule || 'once'
+  document.getElementById('rq-title').value = ''
+  document.getElementById('rq-run-now').checked = false
+
+  const vlist = document.getElementById('rq-version-list')
+  if (t.prompt_id) {
+    const versions = await fetch(`/task-prompts/${t.prompt_id}/versions`).then(r => r.json()).catch(() => ({ versions: [] }))
+    rqRenderVersions(versions.versions || [])
+  } else {
+    vlist.innerHTML = '<div style="color:var(--muted);font-size:11px;font-style:italic">No version history — first time editing this task</div>'
+  }
+}
+
+function rqRenderVersions(versions) {
+  const vlist = document.getElementById('rq-version-list')
+  if (!versions.length) {
+    vlist.innerHTML = '<div style="color:var(--muted);font-size:11px;font-style:italic">No versions yet</div>'
+    return
+  }
+  vlist.innerHTML = versions.map(v => `
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:5px;cursor:pointer" onclick="rqLoadVersion(${JSON.stringify(v.content)}, ${JSON.stringify(v.schedule)})">
+      <span style="font-size:10px;font-weight:700;font-family:var(--mono);color:#a5b4fc">v${v.version}</span>
+      ${v.title ? `<span style="font-size:11px;color:var(--muted)">${escHtml(v.title)}</span>` : ''}
+      <span style="font-size:10px;color:var(--muted);margin-left:auto">${new Date(v.created_at).toLocaleDateString()}</span>
+    </div>`).join('')
+}
+
+function rqLoadVersion(content, schedule) {
+  document.getElementById('rq-content').value = content
+  if (schedule) document.getElementById('rq-schedule').value = schedule
+}
+
+function closeRequeuePanel() {
+  document.getElementById('requeue-panel').style.display = 'none'
+  _rqTaskId = null
+}
+
+async function rqSaveAndQueue() {
+  const content  = document.getElementById('rq-content').value.trim()
+  const title    = document.getElementById('rq-title').value.trim()
+  const schedule = document.getElementById('rq-schedule').value
+  const runNow   = document.getElementById('rq-run-now').checked
+  if (!content) { alert('Task prompt cannot be empty'); return }
+
+  let url = '/task-prompts'
+  let body = { content, title, schedule, run_now: runNow }
+
+  if (_rqTaskId) {
+    const t = await fetch(`/queue/${_rqTaskId}`).then(r => r.json()).catch(() => null)
+    if (t?.prompt_id) {
+      url = `/task-prompts/${t.prompt_id}/versions`
+    }
+    if (t) {
+      body.cwd = t.cwd || ''
+      body.model = t.model || 'claude-sonnet-4-6'
+      body.provider_id = t.provider_id
+    }
+  }
+
+  const r = await fetch(url, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) }).then(r => r.json())
+  if (r.ok) {
+    closeRequeuePanel()
+    refreshQueue()
+  } else {
+    alert(r.error || 'Failed to queue task')
+  }
+}
+
 init();
 </script>
+
+<!-- Requeue panel -->
+<div id="requeue-panel" style="display:none;position:fixed;top:0;right:0;width:min(600px,100vw);height:100vh;background:var(--surface,var(--card));border-left:1px solid var(--border);z-index:200;flex-direction:column;box-shadow:-4px 0 24px rgba(0,0,0,.4)">
+  <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);flex-shrink:0">
+    <span style="font-size:13px;font-weight:600;flex:1">Edit & Re-queue</span>
+    <button onclick="closeRequeuePanel()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;line-height:1;padding:2px 6px">✕</button>
+  </div>
+  <div style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px">
+    <div>
+      <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px">Task prompt</div>
+      <textarea id="rq-content" rows="12" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:10px;font-family:inherit;font-size:12px;resize:vertical;line-height:1.6;box-sizing:border-box"></textarea>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Version label</div>
+        <input id="rq-title" placeholder="e.g. Added JSON output" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:inherit;box-sizing:border-box">
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Schedule</div>
+        <select id="rq-schedule" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;cursor:pointer;font-family:inherit">
+          <option value="once">Once</option>
+          <option value="hourly">Hourly</option>
+          <option value="daily">Daily</option>
+          <option value="weekly">Weekly</option>
+          <option value="monthly">Monthly</option>
+        </select>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Version history</div>
+      <div id="rq-version-list" style="display:flex;flex-direction:column;gap:4px;max-height:150px;overflow-y:auto"></div>
+    </div>
+  </div>
+  <div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:center;flex-shrink:0">
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text);cursor:pointer;margin-right:auto">
+      <input type="checkbox" id="rq-run-now" style="accent-color:var(--blue)"> Run now (bypass gate)
+    </label>
+    <button onclick="closeRequeuePanel()" style="background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;font-family:inherit">Cancel</button>
+    <button onclick="rqSaveAndQueue()" style="background:var(--blue);color:#fff;border:none;border-radius:6px;padding:7px 16px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">Save & Queue</button>
+  </div>
+</div>
 
 <!-- Artifact viewer slide-in panel -->
 <div id="artifact-panel" style="display:none;position:fixed;top:0;right:0;width:min(680px,100vw);height:100vh;background:var(--surface);border-left:1px solid var(--border);z-index:200;flex-direction:column;box-shadow:-4px 0 24px rgba(0,0,0,.4)">
