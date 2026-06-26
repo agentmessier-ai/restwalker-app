@@ -13,7 +13,6 @@ import * as scheduler from './scheduler.js'
 import { startQueue, setQueue, enqueueTask, setLogger as setRunnerLogger } from './runner.js'
 import { setLogger as setSchedulerLogger } from './scheduler.js'
 import { plugins } from './plugins.js'
-import { logTaskPlugin } from './plugins/log-task.js'
 import { gbrainPlugin } from './plugins/gbrain-plugin.js'
 import { webhookPlugin, setLogger as setWebhookLogger } from './plugins/webhook.js'
 import { setLogger as setGbrainLogger } from './gbrain.js'
@@ -140,7 +139,6 @@ setGbrainLogger({ info: (s) => app.log.info(s), warn: (s) => app.log.warn(s) })
 setWebhookLogger({ info: (s) => app.log.info(s), warn: (s) => app.log.warn(s) })
 setOpenClawLogger({ info: (s) => app.log.info(s), warn: (s) => app.log.warn(s) })
 plugins.register(webhookPlugin, { builtin: true })
-plugins.register(logTaskPlugin, { builtin: true })
 plugins.register(gbrainPlugin, { builtin: true })
 await plugins.loadPersistedExternal()
 await reloadPersistedOpenClaw(plugins)
