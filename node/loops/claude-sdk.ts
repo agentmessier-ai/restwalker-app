@@ -1,4 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { mkdirSync, writeFileSync } from 'fs'
+import { join } from 'path'
 import type { AgentLoop, AgentLoopContext, AgentLoopResult, EventCallback } from '../agent-loop.js'
 
 const ARTIFACT_RE = /^ARTIFACT:\s*(\{.+\})\s*$/m
@@ -11,13 +13,14 @@ export class ClaudeSDKLoop implements AgentLoop {
 
     const client = new Anthropic({ apiKey })
 
-    const { task, systemPrompt, model, extraContext } = ctx
+    const { task, workspacePath, systemPrompt, model, extraContext } = ctx
     const userContent = systemPrompt + (extraContext ?? '') + task.description
 
     let tokensUsed = 0
     let toolCalls = 0
     let turnCounter = 0
     let lastText = ''
+    const transcript: string[] = []
     const artifacts: { path: string; description: string }[] = []
 
     const messages: Anthropic.MessageParam[] = [
@@ -45,6 +48,7 @@ export class ClaudeSDKLoop implements AgentLoop {
         if (block.type === 'text') {
           textAcc += block.text
           lastText = block.text
+          transcript.push(block.text)
 
           // emit artifact events
           const re = new RegExp(ARTIFACT_RE.source, 'gm')
@@ -110,6 +114,13 @@ export class ClaudeSDKLoop implements AgentLoop {
 
       break
     }
+
+    // Persist the full transcript under <workspace>/logs/ (best-effort)
+    try {
+      const logsDir = join(workspacePath, 'logs')
+      mkdirSync(logsDir, { recursive: true })
+      if (transcript.length) writeFileSync(join(logsDir, 'transcript.log'), transcript.join('\n'), 'utf8')
+    } catch { /* never fail a task over logging */ }
 
     return {
       result:      lastText.slice(0, 1000),

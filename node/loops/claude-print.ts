@@ -1,6 +1,6 @@
 import { spawn } from 'child_process'
-import { existsSync, readFileSync } from 'fs'
-import { basename } from 'path'
+import { existsSync, readFileSync, mkdirSync, writeFileSync } from 'fs'
+import { basename, join } from 'path'
 import chokidar from 'chokidar'
 import type { AgentLoop, AgentLoopContext, AgentLoopResult, EventCallback } from '../agent-loop.js'
 import { findSessionJsonl } from '../session.js'
@@ -26,6 +26,21 @@ export class ClaudePrintLoop implements AgentLoop {
     const startedAt = Date.now()
     const stdoutBufs: string[] = []
     const stderrBufs: string[] = []
+
+    // Persist the full run output under <workspace>/logs/ — the daemon log only
+    // keeps a truncated result, this keeps the complete stdout/stderr per task.
+    // Called on every exit path (success and failure) so a failed run is still
+    // inspectable; logging never throws into the task.
+    const writeLogs = () => {
+      try {
+        const logsDir = join(workspacePath, 'logs')
+        mkdirSync(logsDir, { recursive: true })
+        const stdout = stdoutBufs.join('')
+        const stderr = stderrBufs.join('')
+        if (stdout) writeFileSync(join(logsDir, 'stdout.log'), stdout, 'utf8')
+        if (stderr) writeFileSync(join(logsDir, 'stderr.log'), stderr, 'utf8')
+      } catch { /* best-effort — never fail a task over logging */ }
+    }
 
     await new Promise<void>((resolve, reject) => {
       const claudeBin = process.env.CLAUDE_BIN ?? 'claude'
@@ -167,6 +182,7 @@ export class ClaudePrintLoop implements AgentLoop {
 
         drain.finally(() => {
           if (watcher) watcher.close().catch(() => {})
+          writeLogs()
           if ((code ?? 1) !== 0) {
             const errOut = (stdoutBufs.join('') || stderrBufs.join('')).trim()
             reject(new Error(`exit ${code}: ${errOut.slice(0, 500)}`))
@@ -180,6 +196,7 @@ export class ClaudePrintLoop implements AgentLoop {
         clearTimeout(killTimer)
         clearInterval(pollInterval)
         if (watcher) watcher.close().catch(() => {})
+        writeLogs()
         reject(e)
       })
     })
