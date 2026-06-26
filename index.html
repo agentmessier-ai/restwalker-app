@@ -1647,7 +1647,7 @@ init();
 </script>
 
 <!-- Requeue panel -->
-<div id="requeue-panel" style="display:none;position:fixed;top:0;right:0;width:min(600px,100vw);height:100vh;background:var(--surface,var(--card));border-left:1px solid var(--border);z-index:200;flex-direction:column;box-shadow:-4px 0 24px rgba(0,0,0,.4)">
+<div id="requeue-panel" style="display:none;position:fixed;top:0;right:0;width:min(600px,100vw);height:100vh;background:var(--card);border-left:1px solid var(--border);z-index:200;flex-direction:column;box-shadow:-4px 0 24px rgba(0,0,0,.4)">
   <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);flex-shrink:0">
     <span style="font-size:13px;font-weight:600;flex:1">Edit & Re-queue</span>
     <button onclick="closeRequeuePanel()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;line-height:1;padding:2px 6px">✕</button>
@@ -1688,7 +1688,7 @@ init();
 </div>
 
 <!-- Artifact viewer slide-in panel -->
-<div id="artifact-panel" style="display:none;position:fixed;top:0;right:0;width:min(680px,100vw);height:100vh;background:var(--surface);border-left:1px solid var(--border);z-index:200;flex-direction:column;box-shadow:-4px 0 24px rgba(0,0,0,.4)">
+<div id="artifact-panel" style="display:none;position:fixed;top:0;right:0;width:min(680px,100vw);height:100vh;background:var(--card);border-left:1px solid var(--border);z-index:200;flex-direction:column;box-shadow:-4px 0 24px rgba(0,0,0,.4)">
   <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);flex-shrink:0">
     <span style="font-size:13px;font-weight:600;color:var(--text);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="artifact-panel-title"></span>
     <button onclick="closeArtifactViewer()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;line-height:1;padding:2px 6px" title="Close">✕</button>
