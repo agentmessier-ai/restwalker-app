@@ -12,7 +12,9 @@
     "index.html",
     "install.sh",
     "uninstall.sh",
-    "README.md"
+    "README.md",
+    "examples/",
+    "plugin/"
   ],
   "engines": {
     "node": ">=20"
