@@ -357,6 +357,9 @@
         <option value="finished_desc">Recently finished</option>
         <option value="duration_desc">Longest run</option>
       </select>
+      <select id="q-filter-tag" onchange="qPage=0;refreshQueue()" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:5px 8px;font-size:12px;cursor:pointer;font-family:inherit">
+        <option value="">All tags</option>
+      </select>
       <button onclick="refreshQueue()" style="background:var(--card);border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:4px" title="Refresh task list">↻ Refresh</button>
     </div>
     <!-- One-time tasks section -->
@@ -1245,14 +1248,45 @@ function qBadge(status) {
   return `<span style="display:inline-block;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:600;text-transform:uppercase;background:${c}22;color:${c}">${status}</span>`
 }
 
+// Populate the tag-filter dropdown from distinct tags (preserves current selection)
+async function loadTagFilter() {
+  const sel = document.getElementById('q-filter-tag')
+  if (!sel) return
+  const cur = sel.value
+  const data = await fetch('/queue/tags').then(r => r.json()).catch(() => ({ tags: [] }))
+  const tags = data.tags || []
+  sel.innerHTML = '<option value="">All tags</option>' +
+    tags.map(t => `<option value="${escHtml(t.tag)}"${t.tag === cur ? ' selected' : ''}>${escHtml(t.tag)} (${t.count})</option>`).join('')
+}
+
+// Render a task's tags as small chips; clicking one filters the list to that tag
+function tagChips(tagsJson) {
+  let tags = []
+  try { tags = JSON.parse(tagsJson || '[]') } catch {}
+  if (!Array.isArray(tags) || !tags.length) return ''
+  return '<span style="display:inline-flex;flex-wrap:wrap;gap:4px;margin-left:2px">' + tags.map(t =>
+    `<span onclick="event.stopPropagation();filterByTag('${escHtml(t)}')" title="Filter by ${escHtml(t)}"
+      style="background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.3);color:#c4b5fd;border-radius:4px;padding:0 6px;font-size:10px;cursor:pointer">${escHtml(t)}</span>`
+  ).join('') + '</span>'
+}
+
+function filterByTag(tag) {
+  const sel = document.getElementById('q-filter-tag')
+  if (sel) { sel.value = tag; qPage = 0; refreshQueue() }
+}
+
 async function refreshQueue() {
   const filterStatus = document.getElementById('q-filter-status')?.value || ''
+  const filterTag = document.getElementById('q-filter-tag')?.value || ''
   const sortVal = document.getElementById('q-sort')?.value || 'created_desc'
   const [sortBy, sortDir] = sortVal.includes('_') ? [sortVal.slice(0, sortVal.lastIndexOf('_')), sortVal.slice(sortVal.lastIndexOf('_')+1)] : ['created', 'desc']
+
+  loadTagFilter()
 
   const onceParams = new URLSearchParams({ limit: qPageSize, offset: qPage * qPageSize, sort: sortBy, dir: sortDir, schedule_type: 'once' })
   const recurParams = new URLSearchParams({ limit: '50', offset: '0', sort: 'created', dir: 'desc', schedule_type: 'recurring' })
   if (filterStatus) { onceParams.set('status', filterStatus); recurParams.set('status', filterStatus) }
+  if (filterTag) { onceParams.set('tag', filterTag); recurParams.set('tag', filterTag) }
 
   const [statsRes, tasksRes, recurRes] = await Promise.all([
     fetch('/queue/stats').then(r => r.json()).catch(() => ({})),
@@ -1365,6 +1399,7 @@ function renderTaskList(tasks) {
             <span style="color:var(--muted);font-size:11px;user-select:none">${expandIcon}</span>
             <span style="color:var(--text)">${escHtml(qDescPreview(t.description))}</span>
             ${scheduleChip(t)}
+            ${tagChips(t.tags)}
           </div>
           <div style="color:var(--muted);font-size:11px;margin-top:3px;padding-left:18px">
             ${t.cwd ? `<span>${t.cwd}</span> · ` : ''}${(() => { const p = _providers.find(x => x.id === t.provider_id) || _providers.find(x => x.is_default); return p ? `<span style="color:#94a3b8">${escHtml(p.name)}</span> · ` : '' })()}${t.model ? `<span style="color:#818cf8">${t.model.replace('claude-','')}</span> · ` : ''}added ${qTimeSince(t.created_at)}${t.started_at && !t.finished_at ? ` · <span style="color:#3b82f6">running ${qTimeSince(t.started_at).replace(' ago','')}</span>` : ''}${t.finished_at ? ` · finished ${qTimeSince(t.finished_at)}` : ''}${t.started_at && t.finished_at ? ` · <span style="color:var(--muted)" title="Execution time">${qDuration(t.started_at, t.finished_at)}</span>` : ''}${t.tool_calls ? ` · ${t.tool_calls} tools` : ''}${t.tokens_used ? ` · ${t.tokens_used.toLocaleString()} tok` : ''}

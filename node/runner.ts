@@ -121,7 +121,7 @@ async function processTask(input: QueuePayload): Promise<void> {
   const loopCtx: AgentLoopContext = {
     task,
     workspacePath,
-    systemPrompt: db.getActiveSystemPrompt().content,
+    systemPrompt: db.TAGS_PROTOCOL + db.getActiveSystemPrompt().content,
     model: task.model || 'claude-sonnet-4-6',
     extraContext: enrichment ?? undefined,
     cwd: task.cwd || workspacePath,
@@ -159,6 +159,7 @@ async function processTask(input: QueuePayload): Promise<void> {
     tool_calls:     loopResult.toolCalls,
     tokens_used:    loopResult.tokensUsed,
     workspace_path: workspacePath,
+    tags:           loopResult.tags,
   })
 
   await plugins.invoke('post_task', { task, workspacePath, status: 'done', tokensUsed: loopResult.tokensUsed, toolCalls: loopResult.toolCalls, result: loopResult.result })

@@ -173,6 +173,21 @@ Clicking a chip opens a slide-in viewer with a **Download** button in the header
 
 This works with any agent provider — the preamble is plain text injected into the prompt.
 
+## Tags
+
+Every task is auto-tagged by the agent. An always-on preamble (prepended to whatever
+system prompt is active, so it can't be edited away) asks the agent to classify its work
+with 2–5 short topic tags and emit one line:
+
+```
+TAGS: ["backend", "refactor", "testing"]
+```
+
+Restwalker parses that line after the run and stores the tags on the task. The dashboard
+shows them as chips on each task and offers a **tag filter** in the queue toolbar — click a
+chip or pick from the dropdown to filter. Via API: `GET /queue?tag=backend` filters, and
+`GET /queue/tags` lists all tags with counts.
+
 ## System prompt
 
 The system prompt injected into every task is versioned and editable. Click **📋 System prompt** in the Add Task section to open the editor. You can:

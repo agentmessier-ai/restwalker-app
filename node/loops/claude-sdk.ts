@@ -122,6 +122,16 @@ export class ClaudeSDKLoop implements AgentLoop {
       if (transcript.length) writeFileSync(join(logsDir, 'transcript.log'), transcript.join('\n'), 'utf8')
     } catch { /* never fail a task over logging */ }
 
+    // Parse the last TAGS: [...] declaration from the transcript
+    let tags: string[] = []
+    const tagsMatch = transcript.join('\n').match(/^TAGS:\s*(\[.+\])\s*$/gm)
+    if (tagsMatch) {
+      try {
+        const arr = JSON.parse(tagsMatch[tagsMatch.length - 1].replace(/^TAGS:\s*/, ''))
+        if (Array.isArray(arr)) tags = arr.map(String).map(s => s.trim().toLowerCase()).filter(Boolean).slice(0, 6)
+      } catch {}
+    }
+
     return {
       result:      lastText.slice(0, 1000),
       tokensUsed,
@@ -129,6 +139,7 @@ export class ClaudeSDKLoop implements AgentLoop {
       sessionId:   null,
       sessionPath: null,
       artifacts,
+      tags,
     }
   }
 }

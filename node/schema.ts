@@ -73,6 +73,8 @@ export const tasks = sqliteTable('tasks', {
   webhook_ignore_ssl: integer('webhook_ignore_ssl').notNull().default(0),
   // per-task agent timeout in seconds; null = use the global TASK_TIMEOUT_S setting
   timeout_s:          integer('timeout_s'),
+  // agent-assigned topic tags, stored as a JSON string array (e.g. '["backend","refactor"]')
+  tags:               text('tags'),
 })
 
 export const taskPrompts = sqliteTable('task_prompts', {

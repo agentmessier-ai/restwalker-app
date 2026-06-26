@@ -5,6 +5,24 @@ import { db, schema } from './client.js'
 
 export type SystemPrompt = typeof schema.systemPrompts.$inferSelect
 
+// Always-on preamble, prepended to whatever system prompt is active (even a custom
+// one) so tagging is enforced and can't be edited away. The system parses the TAGS
+// line after the run and stores it on the task.
+export const TAGS_PROTOCOL = `\
+## Restwalker Tagging Protocol
+Before you finish, classify this task with 2–5 short topic tags so the user can filter and group their tasks. Output ONE line in this exact format near the end of your response:
+
+TAGS: ["tag-one", "tag-two"]
+
+Rules:
+- Lowercase kebab-case, 1–3 words each (e.g. "bug-fix", "refactor", "research", "docs", "frontend", "backend", "testing", "devops", "data", "skill", "report").
+- Pick tags for the *kind* of work and the *domain* — what the task is about, not how it went.
+- 2–5 tags, most specific first. This line is required.
+
+---
+
+`
+
 export const BUILTIN_SYSTEM_PROMPT = `\
 ## Restwalker Artifact Protocol
 You are running as a background task inside restwalker — an idle-time Claude task runner that uses your Claude Max plan's leftover tokens to do meaningful work while you rest.

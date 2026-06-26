@@ -19,6 +19,7 @@ export interface SessionAnalysis {
   keySteps:     string[]
   outcome:      string
   artifacts:    ArtifactDeclaration[]
+  tags:         string[]
 }
 
 export function findSessionJsonl(cwd: string, startedAfter: number): string | null {
@@ -45,10 +46,12 @@ export function analyzeSession(sessionPath: string): SessionAnalysis {
   const filesEdited: string[] = []
   const keySteps: string[] = []
   const artifacts: ArtifactDeclaration[] = []
+  let tags: string[] = []
   const sessionId = basename(sessionPath, '.jsonl')
   let lastAssistantText = ''
 
   const ARTIFACT_RE = /^ARTIFACT:\s*(\{.+\})\s*$/m
+  const TAGS_RE     = /^TAGS:\s*(\[.+\])\s*$/m
 
   for (const line of lines) {
     let d: Record<string, unknown>
@@ -87,6 +90,14 @@ export function analyzeSession(sessionPath: string): SessionAnalysis {
               try {
                 const decl = JSON.parse(m[1]) as { path?: string; description?: string }
                 if (decl.path) artifacts.push({ path: decl.path, description: decl.description ?? '' })
+              } catch {}
+            }
+            // Extract the last TAGS: [...] declaration (a later turn overrides an earlier one)
+            const tagsMatch = (c.text as string).match(new RegExp(TAGS_RE.source, 'gm'))
+            if (tagsMatch) {
+              try {
+                const arr = JSON.parse(tagsMatch[tagsMatch.length - 1].replace(/^TAGS:\s*/, ''))
+                if (Array.isArray(arr)) tags = arr.map(String).map(s => s.trim().toLowerCase()).filter(Boolean).slice(0, 6)
               } catch {}
             }
           }
@@ -134,5 +145,6 @@ export function analyzeSession(sessionPath: string): SessionAnalysis {
     keySteps:     deduped,
     outcome:      lastAssistantText.slice(0, 400).trim(),
     artifacts,
+    tags,
   }
 }

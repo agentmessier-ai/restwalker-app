@@ -29,6 +29,7 @@ export interface AgentLoopResult {
   sessionId:   string | null
   sessionPath: string | null
   artifacts:   { path: string; description: string }[]
+  tags:        string[]
 }
 
 // ── The interface every loop must implement ───────────────────────────────────

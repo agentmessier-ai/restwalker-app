@@ -38,6 +38,7 @@ export default async function queueRoutes(app: FastifyInstance) {
           schedule_type:{ type: 'string', enum: ['once', 'recurring'] },
           sort:         { type: 'string', enum: ['created', 'finished', 'duration'], default: 'created' },
           dir:          { type: 'string', enum: ['asc', 'desc'], default: 'desc' },
+          tag:          { type: 'string', description: 'Filter to tasks carrying this tag' },
         },
       },
       response: {
@@ -58,11 +59,28 @@ export default async function queueRoutes(app: FastifyInstance) {
     const scheduleType = q.schedule_type as 'once' | 'recurring' | undefined
     const sort         = (q.sort as 'created' | 'finished' | 'duration') || 'created'
     const dir          = (q.dir  as 'asc' | 'desc') || 'desc'
+    const tag          = q.tag || undefined
     return {
-      tasks: db.getTasks(limit, offset, { status, scheduleType, sort, dir }),
+      tasks: db.getTasks(limit, offset, { status, scheduleType, sort, dir, tag }),
       total: db.getTaskCount(status, scheduleType),
     }
   })
+
+  // Distinct tags across all tasks, with counts — for the filter UI
+  app.get('/queue/tags', {
+    schema: {
+      tags: ['queue'],
+      summary: 'List distinct task tags with usage counts',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            tags: { type: 'array', items: { type: 'object', properties: { tag: { type: 'string' }, count: { type: 'integer' } } } },
+          },
+        },
+      },
+    },
+  }, async () => ({ tags: db.getDistinctTags() }))
 
   app.get('/queue/:id', {
     schema: {

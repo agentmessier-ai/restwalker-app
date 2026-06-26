@@ -213,6 +213,7 @@ export class ClaudePrintLoop implements AgentLoop {
     let tokensUsed = 0
     let sessionId: string | null = null
     const artifacts: { path: string; description: string }[] = []
+    let tags: string[] = []
 
     if (sessionPath) {
       try {
@@ -222,6 +223,7 @@ export class ClaudePrintLoop implements AgentLoop {
         tokensUsed = analysis.tokensUsed
         sessionId  = analysis.sessionId
         artifacts.push(...analysis.artifacts)
+        tags = analysis.tags
       } catch { /* best-effort */ }
     }
 
@@ -234,6 +236,7 @@ export class ClaudePrintLoop implements AgentLoop {
       sessionId,
       sessionPath,
       artifacts,
+      tags,
     }
   }
 }

@@ -130,6 +130,7 @@ export function migrate(): void {
   }
   try { if (taskCols.includes('webhook_timeout_ms')) client.exec('ALTER TABLE tasks DROP COLUMN webhook_timeout_ms') } catch { /* sqlite < 3.35 */ }
   try { if (taskCols.includes('timeout_ms'))         client.exec('ALTER TABLE tasks DROP COLUMN timeout_ms') } catch { /* sqlite < 3.35 */ }
+  if (!taskCols.includes('tags')) client.exec('ALTER TABLE tasks ADD COLUMN tags TEXT')
 
   // Setting: TASK_TIMEOUT_MS (ms) → TASK_TIMEOUT_S (seconds)
   const oldTimeout = client.prepare("SELECT value FROM settings WHERE key='TASK_TIMEOUT_MS'").get() as { value?: string } | undefined

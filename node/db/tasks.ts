@@ -158,6 +158,7 @@ export function completeTask(
     tool_calls?: number
     tokens_used?: number
     workspace_path?: string
+    tags?: string[]
   }
 ): { task: Task; next: Task | null } {
   return db.transaction((tx) => {
@@ -171,6 +172,7 @@ export function completeTask(
         tool_calls:     opts.tool_calls ?? 0,
         tokens_used:    opts.tokens_used ?? 0,
         workspace_path: opts.workspace_path ?? null,
+        tags:           opts.tags && opts.tags.length ? JSON.stringify(opts.tags) : null,
         finished_at:    now,
       })
       .where(eq(schema.tasks.id, taskId))
@@ -226,8 +228,9 @@ export function getTasks(limit = 25, offset = 0, opts?: {
   scheduleType?: 'once' | 'recurring'
   sort?: 'created' | 'finished' | 'duration'
   dir?: 'asc' | 'desc'
+  tag?: string
 }): Task[] {
-  const { status, scheduleType, sort = 'created', dir = 'desc' } = opts ?? {}
+  const { status, scheduleType, sort = 'created', dir = 'desc', tag } = opts ?? {}
   const orderFn = dir === 'asc' ? asc : desc
   const orderExpr = sort === 'finished'
     ? orderFn(schema.tasks.finished_at)
@@ -239,12 +242,32 @@ export function getTasks(limit = 25, offset = 0, opts?: {
   if (status)       conditions.push(eq(schema.tasks.status, status))
   if (scheduleType === 'once')      conditions.push(eq(schema.tasks.schedule, 'once'))
   if (scheduleType === 'recurring') conditions.push(sql`schedule != 'once'`)
+  // tags stored as a JSON array string; match the exact quoted token
+  if (tag) conditions.push(sql`tags LIKE ${'%"' + tag + '"%'}`)
 
   const where = conditions.length ? and(...conditions) : undefined
   return (where
     ? db.select().from(schema.tasks).where(where)
     : db.select().from(schema.tasks)
   ).orderBy(orderExpr).limit(limit).offset(offset).all()
+}
+
+// Distinct tags across all tasks, with usage counts, most-used first.
+export function getDistinctTags(): { tag: string; count: number }[] {
+  const rows = db.select({ tags: schema.tasks.tags }).from(schema.tasks)
+    .where(sql`tags IS NOT NULL`).all()
+  const counts = new Map<string, number>()
+  for (const r of rows) {
+    if (!r.tags) continue
+    try {
+      for (const t of JSON.parse(r.tags) as string[]) {
+        counts.set(t, (counts.get(t) ?? 0) + 1)
+      }
+    } catch { /* skip malformed */ }
+  }
+  return [...counts.entries()]
+    .map(([tag, count]) => ({ tag, count }))
+    .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag))
 }
 
 export function getTaskCount(status?: TaskStatus, scheduleType?: 'once' | 'recurring'): number {

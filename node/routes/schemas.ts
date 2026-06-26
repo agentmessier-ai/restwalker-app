@@ -41,6 +41,7 @@ export const S = {
       webhook_retry:      { type: 'integer' },
       webhook_ignore_ssl: { type: 'integer' },
       timeout_s:          { type: 'integer', nullable: true },
+      tags:               { type: 'string', nullable: true },
     },
   },
   ok: {
