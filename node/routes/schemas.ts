@@ -9,6 +9,7 @@ export const S = {
       command:      { type: 'string' },
       args_template:{ type: 'string' },
       is_default:   { type: 'integer' },
+      loop_type:    { type: 'string', enum: ['claude_print', 'claude_sdk'] },
       created_at:   { type: 'string', format: 'date-time' },
     },
   },

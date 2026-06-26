@@ -21,9 +21,9 @@ export function getDefaultProvider(): Provider | null {
   return db.select().from(schema.providers).where(eq(schema.providers.is_default, 1)).limit(1).get() ?? null
 }
 
-export function addProvider(name: string, command: string, argsTemplate: string): Provider {
+export function addProvider(name: string, command: string, argsTemplate: string, loopType?: string): Provider {
   return db.insert(schema.providers)
-    .values({ name, command, args_template: argsTemplate })
+    .values({ name, command, args_template: argsTemplate, loop_type: loopType ?? 'claude_print' })
     .returning()
     .get()!
 }

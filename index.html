@@ -501,6 +501,12 @@
           <input id="p-command" placeholder="Command (e.g. /usr/local/bin/opencode)" style="background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:5px 8px;font-size:12px;font-family:var(--mono);width:100%">
           <textarea id="p-args" rows="3" placeholder='Args template as JSON array&#10;e.g. ["run","--model","{{model}}","{{task}}"]' style="background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:5px 8px;font-size:11px;font-family:var(--mono);width:100%;resize:vertical"></textarea>
           <div style="font-size:10px;color:var(--muted)">Placeholders: <code>{{task}}</code> <code>{{model}}</code> <code>{{cwd}}</code></div>
+          <label style="font-size:11px;color:var(--muted)">Loop
+            <select id="p-loop" style="background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:5px 8px;font-size:12px;font-family:inherit;width:100%;margin-top:3px">
+              <option value="claude_print">claude_print — spawn the CLI (the pipe)</option>
+              <option value="claude_sdk">claude_sdk — Anthropic Messages API</option>
+            </select>
+          </label>
           <div style="display:flex;gap:6px">
             <button onclick="providerSaveAdd()" style="background:var(--blue);color:#fff;border:none;border-radius:4px;padding:4px 12px;font-size:12px;cursor:pointer;font-family:inherit">Save</button>
             <button onclick="providerHideAdd()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:4px 10px;font-size:12px;cursor:pointer;font-family:inherit">Cancel</button>
@@ -1060,6 +1066,7 @@ function renderProviderList() {
         </div>
         <div style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-top:2px">${escHtml(p.command)}</div>
         <div style="font-size:10px;color:#64748b;font-family:var(--mono);margin-top:2px">${escHtml(p.args_template)}</div>
+        <div style="font-size:10px;color:#818cf8;font-family:var(--mono);margin-top:2px">${escHtml(p.loop_type === 'claude_sdk' ? 'claude_sdk (API)' : 'claude_print (CLI pipe)')}</div>
       </div>
       <div style="display:flex;gap:4px;flex-shrink:0">
         ${!p.is_default ? `<button onclick="providerSetDefault(${p.id})" title="Set as default" style="background:var(--card);border:1px solid var(--border);color:var(--muted);border-radius:4px;padding:2px 6px;font-size:11px;cursor:pointer">★</button>` : ''}
@@ -1078,15 +1085,17 @@ function providerHideAdd() {
   document.getElementById('p-name').value = ''
   document.getElementById('p-command').value = ''
   document.getElementById('p-args').value = ''
+  document.getElementById('p-loop').value = 'claude_print'
 }
 async function providerSaveAdd() {
   const name    = document.getElementById('p-name').value.trim()
   const command = document.getElementById('p-command').value.trim()
   const args    = document.getElementById('p-args').value.trim()
+  const loop    = document.getElementById('p-loop').value
   if (!name || !command) { alert('Name and command required'); return }
   let argsTemplate = args || '["{{task}}"]'
   try { JSON.parse(argsTemplate) } catch { alert('Args must be a valid JSON array, e.g. ["run","{{task}}"]'); return }
-  const r = await fetch('/providers', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({name, command, args_template: argsTemplate}) }).then(r=>r.json())
+  const r = await fetch('/providers', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({name, command, args_template: argsTemplate, loop_type: loop}) }).then(r=>r.json())
   if (r.ok) { providerHideAdd(); loadProviders() } else { alert(r.error) }
 }
 async function providerSetDefault(id) {
@@ -1105,7 +1114,9 @@ function providerEdit(id) {
   const command = prompt('Command:', p.command); if (command === null) return
   const args    = prompt('Args template (JSON array):', p.args_template); if (args === null) return
   try { JSON.parse(args) } catch { alert('Invalid JSON array'); return }
-  fetch(`/providers/${id}`, { method:'PUT', headers:{'content-type':'application/json'}, body:JSON.stringify({name, command, args_template: args}) })
+  const loop    = prompt('Loop (claude_print or claude_sdk):', p.loop_type || 'claude_print'); if (loop === null) return
+  if (loop !== 'claude_print' && loop !== 'claude_sdk') { alert('Loop must be claude_print or claude_sdk'); return }
+  fetch(`/providers/${id}`, { method:'PUT', headers:{'content-type':'application/json'}, body:JSON.stringify({name, command, args_template: args, loop_type: loop}) })
     .then(() => loadProviders())
 }
 

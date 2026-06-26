@@ -26,6 +26,7 @@ export default async function providersRoutes(app: FastifyInstance) {
           name:         { type: 'string' },
           command:      { type: 'string' },
           args_template:{ type: 'string', description: 'JSON string array with {{task}}, {{model}}, {{cwd}} placeholders' },
+          loop_type:    { type: 'string', enum: ['claude_print', 'claude_sdk'], description: 'claude_print = spawn the CLI (the pipe); claude_sdk = Anthropic Messages API' },
         },
       },
       response: {
@@ -34,9 +35,9 @@ export default async function providersRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { name, command, args_template } = req.body as { name?: string; command?: string; args_template?: string }
+    const { name, command, args_template, loop_type } = req.body as { name?: string; command?: string; args_template?: string; loop_type?: string }
     if (!name?.trim() || !command?.trim()) return reply.code(400).send({ error: 'name and command required' })
-    const provider = db.addProvider(name.trim(), command.trim(), args_template?.trim() || '["{{task}}"]')
+    const provider = db.addProvider(name.trim(), command.trim(), args_template?.trim() || '["{{task}}"]', loop_type)
     return { ok: true, provider }
   })
 
@@ -51,6 +52,7 @@ export default async function providersRoutes(app: FastifyInstance) {
           name:         { type: 'string' },
           command:      { type: 'string' },
           args_template:{ type: 'string' },
+          loop_type:    { type: 'string', enum: ['claude_print', 'claude_sdk'] },
         },
       },
       response: { 200: S.ok, 404: S.error },
@@ -58,8 +60,8 @@ export default async function providersRoutes(app: FastifyInstance) {
   }, async (req, reply) => {
     const id = parseInt((req.params as { id: string }).id)
     if (!db.getProvider(id)) return reply.code(404).send({ error: 'not found' })
-    const { name, command, args_template } = req.body as Partial<db.Provider>
-    db.updateProvider(id, { name, command, args_template })
+    const { name, command, args_template, loop_type } = req.body as Partial<db.Provider>
+    db.updateProvider(id, { name, command, args_template, loop_type })
     return { ok: true }
   })
 

@@ -255,6 +255,8 @@ server.tool(
     command:      z.string().describe('Executable, e.g. claude or /usr/local/bin/claude'),
     args_template:z.string().optional()
                    .describe('JSON array with {{task}}, {{model}}, {{cwd}} placeholders'),
+    loop_type:    z.enum(['claude_print', 'claude_sdk']).optional()
+                   .describe('claude_print = spawn the CLI (the pipe); claude_sdk = Anthropic Messages API'),
   },
   async (args) => text(await api('POST', '/providers', args)),
 )
