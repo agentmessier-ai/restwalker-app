@@ -24,6 +24,37 @@ or from another restwalker on the LAN.
 - Reuse what restwalker already has: the JSONL parser (`session.ts`), the projects
   index (`history.jsonl`), the REST→MCP derivation, the existing daemon.
 
+## Feature list & status
+
+**Where we are now:** v1 (local cross-folder **+** cross-Mac) is **built, tested, and
+committed on `feature/teleport`** — not yet pushed / merged to `develop`.
+
+| # | Feature | Status | Where |
+|---|---|---|---|
+| 1 | Folder resolution (name/path/substring → project dir, via real `cwd`) | ✅ done | `node/teleport.ts` |
+| 2 | Time-window parsing (`1h`/`6h`/`24h`, default 6h) | ✅ done | `node/teleport.ts` |
+| 3 | Conversation discovery in window (metadata: id, times, count, first request) | ✅ done | `node/teleport.ts` |
+| 4 | **Raw** conversation extraction (turns + tool calls, per-item truncation, size cap) | ✅ done | `node/teleport.ts` |
+| 5 | REST API (`/teleport/folders`, `/list`, `/conversation`, `/peers`) | ✅ done | `node/routes/teleport.ts` |
+| 6 | MCP tools (`teleport`, `teleport_list`, `teleport_folders`, `teleport_peers`) | ✅ done | `node/mcp.ts` |
+| 7 | Settings (`TELEPORT_NETWORK_ENABLED`, `TELEPORT_TOKEN`, `TELEPORT_DEFAULT_WINDOW`) | ✅ done | `node/db/settings.ts` |
+| 8 | LAN discovery — mDNS advertise + browse `_restwalker._tcp` | ✅ done | `node/teleport-mdns.ts` |
+| 9 | Cross-Mac pull via `host` param (proxy to a discovered peer) | ✅ done | `node/routes/teleport.ts` |
+| 10 | Security — localhost bypass, **HMAC** auth, **SSRF guard** (discovered-peers-only), read-only | ✅ done | `node/routes/teleport.ts` |
+| 11 | Dashboard UI config / pairing panel | ⬜ deferred | — (decided: MCP/env-configured; add only if cross-Mac pairing proves fiddly) |
+| 12 | Static peer-list fallback (non-mDNS peers) | ⬜ not started | settings |
+| 13 | TLS / cert-pinning for the response channel | ⬜ future | hardening |
+| 14 | Smarter slicing (semantic relevance, not just time) | ⬜ future (Phase 3) | — |
+| 15 | "Inject teleported context as a queued restwalker task" mode | ⬜ future (Phase 3) | — |
+| 16 | Multi-session merge | ⬜ future (Phase 3) | — |
+| 17 | Automated tests | ⬜ not started | (repo has none today; CI does audit + typecheck + boot smoke) |
+
+Legend: ✅ done · ⬜ not started / deferred / future.
+
+**Verified working:** 36 folders discovered; `restwalker` → 11 conversations; 1h pull →
+60 raw turns; security gate (local 200 / no-sig 401 / valid-HMAC 200 / stale 401 /
+wrong 401); SSRF `host=attacker` → 400; mDNS discovered a real peer Mac on the LAN.
+
 ## Non-goals (v1)
 
 - Not a full conversation *sync*/merge or a replacement for Claude Code's own history.
