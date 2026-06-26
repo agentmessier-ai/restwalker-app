@@ -298,7 +298,7 @@
       <div class="setting-row">
         <div>
           <div class="setting-label">Timezone</div>
-          <div class="setting-hint">Coding window hours are interpreted in this timezone</div>
+          <div class="setting-hint">Used for coding window hours</div>
         </div>
         <div class="setting-input-wrap">
           <select class="setting-input" id="s-TIMEZONE" style="width:14rem"></select>
@@ -306,20 +306,34 @@
       </div>
       <div class="setting-row">
         <div>
-          <div class="setting-label">Coding window start</div>
-          <div class="setting-hint">Jobs pause after this time</div>
+          <div class="setting-label">Coding window</div>
+          <div class="setting-hint">Pause jobs during a set time range each day</div>
         </div>
-        <div class="setting-input-wrap">
-          <select class="setting-input" id="s-CODING_START_H" style="width:9rem"></select>
+        <div class="setting-input-wrap" style="display:flex;align-items:center;gap:8px">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--text)">
+            <input type="checkbox" id="s-CODING_WINDOW_ENABLED" onchange="toggleCodingWindow(this.checked)" style="width:15px;height:15px;cursor:pointer;accent-color:var(--blue)">
+            Enable
+          </label>
         </div>
       </div>
-      <div class="setting-row">
-        <div>
-          <div class="setting-label">Coding window end</div>
-          <div class="setting-hint">Jobs resume after this time</div>
+      <div id="coding-window-times" style="display:none">
+        <div class="setting-row" style="padding-left:16px">
+          <div>
+            <div class="setting-label">Start</div>
+            <div class="setting-hint">Jobs pause from this hour</div>
+          </div>
+          <div class="setting-input-wrap">
+            <select class="setting-input" id="s-CODING_START_H" style="width:9rem"></select>
+          </div>
         </div>
-        <div class="setting-input-wrap">
-          <select class="setting-input" id="s-CODING_END_H" style="width:9rem"></select>
+        <div class="setting-row" style="padding-left:16px">
+          <div>
+            <div class="setting-label">End</div>
+            <div class="setting-hint">Jobs resume at this hour</div>
+          </div>
+          <div class="setting-input-wrap">
+            <select class="setting-input" id="s-CODING_END_H" style="width:9rem"></select>
+          </div>
         </div>
       </div>
     </div>
@@ -690,7 +704,11 @@ function buildHourSelects() {
   });
 }
 
-const SETTING_KEYS = ['CODING_START_H','CODING_END_H','TIMEZONE','FIVE_HOUR_PAUSE_PCT','WEEKLY_RESERVE_PCT','WEEKLY_HARD_STOP_PCT','POLL_INTERVAL_MIN','CACHE_STALE_MIN'];
+const SETTING_KEYS = ['CODING_WINDOW_ENABLED','CODING_START_H','CODING_END_H','TIMEZONE','FIVE_HOUR_PAUSE_PCT','WEEKLY_RESERVE_PCT','WEEKLY_HARD_STOP_PCT','POLL_INTERVAL_MIN','CACHE_STALE_MIN'];
+
+function toggleCodingWindow(enabled) {
+  document.getElementById('coding-window-times').style.display = enabled ? 'block' : 'none';
+}
 
 async function openSettings() {
   buildHourSelects();
@@ -702,6 +720,7 @@ async function openSettings() {
   for (const k of SETTING_KEYS) {
     const el = document.getElementById('s-'+k);
     if (!el) continue;
+    if (el.type === 'checkbox') { el.checked = cfg[k] === '1'; toggleCodingWindow(el.checked); continue; }
     el.value = cfg[k] ?? '';
     const vEl = document.getElementById('v-'+k);
     if (vEl && SLIDER_KEYS[k]) vEl.textContent = (cfg[k] ?? '') + SLIDER_KEYS[k];
@@ -723,7 +742,8 @@ async function saveSettings() {
   const body = {};
   for (const k of SETTING_KEYS) {
     const el = document.getElementById('s-'+k);
-    if (el) body[k] = el.value;
+    if (!el) continue;
+    body[k] = el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value;
   }
   const res = await fetch('/settings', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
   if (res.ok) {

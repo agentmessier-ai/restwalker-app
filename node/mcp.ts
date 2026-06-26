@@ -196,6 +196,7 @@ server.tool(
   'update_settings',
   'Update one or more daemon settings',
   {
+    CODING_WINDOW_ENABLED: z.enum(['0','1']).optional().describe('Enable coding window time gate (1=on, 0=off)'),
     CODING_START_H:       z.string().optional().describe('Hour (0-23) coding window starts'),
     CODING_END_H:         z.string().optional().describe('Hour (0-23) coding window ends'),
     TIMEZONE:             z.string().optional().describe('IANA timezone, e.g. America/Los_Angeles'),

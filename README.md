@@ -17,7 +17,7 @@ Runs as a LaunchAgent on port **47290** with a SQLite database, a dashboard UI, 
 
 | Gate | Default | Behaviour |
 |---|---|---|
-| Coding window | disabled | Optional time range to pause during (e.g. set to 11 PM–7 AM to limit overnight runs) |
+| Coding window | disabled | Optional — enable in Settings to pause during a set time range each day |
 | 5h rolling usage | ≥ 75% | Pause to protect your interactive budget |
 | Weekly ceiling | ≥ 65% | Pause background jobs |
 | Weekly hard stop | ≥ 90% | Hard stop regardless |

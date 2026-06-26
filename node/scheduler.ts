@@ -193,7 +193,7 @@ export async function canRun(usage: UsageData | null, cfg: Settings): Promise<Ca
 
   const now = new Date()
 
-  if (isCodingWindow(now, startH, endH, tz)) {
+  if (cfg.CODING_WINDOW_ENABLED === '1' && isCodingWindow(now, startH, endH, tz)) {
     const idleIn = nextIdleInS(now, startH, endH, tz)
     return {
       ok: false, provider: null, next_idle_in_s: idleIn,
