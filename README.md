@@ -4,6 +4,8 @@
 
 Idle-time Claude task runner — a Mac background service that queues and runs Claude Code agent tasks during your off-hours, gated by live Claude usage so it never burns your interactive budget.
 
+**Don't waste your Max plan — put idle tokens to work.**
+
 Runs as a LaunchAgent on port **47290** with a SQLite database, a dashboard UI, a REST API (OpenAPI 3.0), and an MCP server for Claude Code.
 
 ## How it works
@@ -11,7 +13,7 @@ Runs as a LaunchAgent on port **47290** with a SQLite database, a dashboard UI, 
 1. You add tasks to the queue (via dashboard, REST API, or MCP tools in Claude Code)
 2. The gate checks live Claude usage from `api.anthropic.com` — Claude tracks your token spend in rolling 5-hour and weekly windows
 3. **All gates must be open simultaneously** for a task to run — coding window, 5h budget, and weekly budget
-4. Sessions are recorded; results, token counts, and transcripts are stored per task
+4. Sessions are recorded; results, token counts, reasoning blocks, and transcripts are stored per task
 
 ### Budget gates (all configurable)
 
@@ -57,8 +59,6 @@ Stops the service, removes the LaunchAgent, and optionally deletes `~/.restwalke
 
 `http://localhost:47290`
 
-![Dashboard](docs/screenshot-dashboard.png)
-
 - Live gate status, 5h and weekly usage, next window
 - 48h trend chart with threshold overlays and coding-window shading
 - Task queue: add, paginate, expand rows to view session transcripts and reasoning blocks
@@ -67,8 +67,6 @@ Stops the service, removes the LaunchAgent, and optionally deletes `~/.restwalke
 
 ## Task queue
 
-![Queue](docs/screenshot-queue.png)
-
 Tasks have a description (the prompt), an optional working directory, model, provider, and schedule:
 
 | Schedule | Behaviour |
@@ -76,9 +74,40 @@ Tasks have a description (the prompt), an optional working directory, model, pro
 | `once` | Runs once when the gate opens |
 | `hourly` / `daily` / `weekly` / `monthly` | Automatically re-queues after each run |
 
-## Task workspace and artifacts
+The queue has two sections: **one-time tasks** at the top, **recurring tasks** below. Recurring tasks group all runs under a single entry showing run count, last run time, and execution duration.
 
-Every task gets its own workspace folder at `~/.restwalker/workspace/<task-id>/`. The agent starts there by default (override with a custom working directory if needed).
+### Adding tasks via MCP (recommended)
+
+The easiest way to add tasks is from Claude Code itself:
+
+```
+You have an MCP server called restwalker. Add a task to run nightly: ...
+```
+
+Claude Code will call `queue_add` with the right parameters. You can also use the dashboard form or the REST API directly.
+
+## Task workspace
+
+Every task gets its own workspace folder under `~/.restwalker/workspace/`:
+
+- **One-time tasks:** `~/.restwalker/workspace/<id>-<slug>-<timestamp>/`
+- **Recurring tasks:** `~/.restwalker/workspace/<origin-id>-<slug>/<timestamp>/` — a fixed base folder per task, with a timestamped subfolder per run
+
+The agent's working directory is set to the workspace by default (override with a custom `cwd` if needed). Click **Open in Finder** in the task detail view to jump straight to the folder.
+
+## Versioned task prompts
+
+Every task in the queue is a versioned prompt object. Open any completed or scheduled task, click **✎ Edit & Re-queue**, and you can:
+
+- Edit the prompt in a full textarea
+- Add a version label
+- Change the schedule
+- Save as a new version (full version history is shown in the panel)
+- Check **Run now (bypass gate)** to run immediately, or leave unchecked to queue normally
+
+Recurring tasks automatically use the latest prompt version on each run — edit the prompt once and all future runs pick it up.
+
+## Artifacts
 
 ### Artifact protocol
 
@@ -88,14 +117,26 @@ Restwalker injects a preamble into every task prompt that tells the agent how to
 ARTIFACT: {"path": "/absolute/path/to/file", "description": "one-line description"}
 ```
 
-Restwalker parses these declarations after each task and stores them in the database. They appear as clickable chips in the queue view. Clicking a chip opens a slide-in viewer:
+Restwalker parses these declarations after each task and stores them in the database. They appear as clickable chips in the task detail view.
+
+### Artifact viewer
+
+Clicking a chip opens a slide-in viewer with a **Download** button in the header:
 
 - **Markdown** — rendered
 - **HTML** — rendered in a sandboxed iframe
 - **JSON** — pretty-printed
-- **Text / code** — syntax-highlighted preformatted block
+- **Text / code** — preformatted block
 
-This works with any agent provider, not just Claude Code — the preamble is plain text injected into the prompt.
+This works with any agent provider — the preamble is plain text injected into the prompt.
+
+## System prompt
+
+The system prompt injected into every task is versioned and editable. Click **📋 System prompt** in the Add Task section to open the editor. You can:
+
+- Edit the prompt and save a new version
+- Browse version history and restore any prior version
+- Restore the built-in default at any time
 
 ## Agent providers
 
@@ -128,12 +169,20 @@ Key endpoints:
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `/queue` | GET | List tasks (paginated) |
+| `/queue` | GET | List tasks (filter by status, schedule type, sort) |
 | `/queue` | POST | Add a task |
+| `/queue/:id` | GET | Get a single task |
 | `/queue/:id/force-run` | POST | Force-run bypassing the gate |
 | `/queue/:id/session` | GET | Session transcript with thinking blocks |
 | `/queue/:id/artifacts` | GET | List artifacts declared by a task |
+| `/queue/origin/:id/runs` | GET | Run history for a recurring task chain |
 | `/artifacts/:id/content` | GET | Raw artifact file content |
+| `/task-prompts` | POST | Create a versioned task prompt and optionally queue it |
+| `/task-prompts/:id/versions` | POST | Save a new version of an existing prompt |
+| `/task-prompts/:id/versions` | GET | List all versions in a prompt chain |
+| `/system-prompt` | GET/POST | Read or update the active system prompt |
+| `/system-prompt/restore-builtin` | POST | Restore to the built-in default |
+| `/open-folder` | POST | Open a workspace folder in Finder |
 | `/queue/stats` | GET | Counts by status |
 | `/providers` | GET/POST | List or add agent providers |
 | `/models` | GET | Live Anthropic model list |
@@ -147,19 +196,28 @@ Key endpoints:
 
 | Path | Purpose |
 |---|---|
-| `node/app.ts` | Fastify app, OpenAPI spec, routes, schedule checker |
-| `node/db.ts` | Drizzle ORM repositories (tasks, providers, settings, snapshots) |
+| `node/app.ts` | Fastify app, OpenAPI spec, all routes |
+| `node/db.ts` | Drizzle ORM repositories (tasks, prompts, providers, artifacts, system prompt, settings, snapshots) |
 | `node/schema.ts` | Drizzle table definitions — single source of truth |
-| `node/runner.ts` | better-queue worker, provider resolution, gate logic |
+| `node/runner.ts` | better-queue worker, provider resolution, gate logic, workspace path generation |
 | `node/scheduler.ts` | Keychain read, Anthropic API fetch, time gate, budget logic |
-| `node/session.ts` | Session JSONL parser, analysis, and artifact extraction |
+| `node/session.ts` | Session JSONL parser, analysis, artifact extraction |
 | `node/mime.ts` | Mime-type lookup helper (no external dependency) |
 | `node/mcp.ts` | MCP server (stdio, 17 tools) |
-| `index.html` | Dashboard UI (no build step) |
+| `index.html` | Dashboard UI (no build step, hash-based routing) |
 | `install.sh` | One-command installer with interactive MCP registration |
 | `uninstall.sh` | Clean removal |
 
-## Logs
+## Data
+
+All data lives in `~/.restwalker/`:
+
+| Path | Contents |
+|---|---|
+| `restwalker.db` | SQLite database (tasks, prompts, artifacts, providers, settings, usage snapshots) |
+| `restwalker.log` | Daemon log |
+| `queue.db` | better-queue persistence |
+| `workspace/` | Task workspace folders |
 
 ```bash
 tail -f ~/.restwalker/restwalker.log
