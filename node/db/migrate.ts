@@ -111,8 +111,8 @@ export function migrate(): void {
   if (providerCols.length && !providerCols.includes('loop_type')) {
     client.exec("ALTER TABLE providers ADD COLUMN loop_type TEXT NOT NULL DEFAULT 'claude_print'")
   }
-  // Clarify the legacy seed name — 'Claude Code' is the CLI (print) loop, the pipe
-  client.exec("UPDATE providers SET name = 'Claude Code (CLI)' WHERE name = 'Claude Code'")
+  // Clarify the legacy seed name — the print loop runs `claude -p`, i.e. the pipe
+  client.exec("UPDATE providers SET name = 'Claude (pipe)' WHERE name IN ('Claude Code', 'Claude Code (CLI)')")
 
   const taskCols = (client.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).map(c => c.name)
   if (!taskCols.includes('webhook_pre_url'))    client.exec('ALTER TABLE tasks ADD COLUMN webhook_pre_url TEXT')
@@ -125,7 +125,7 @@ export function migrate(): void {
   const count = db.select({ n: sql<number>`count(*)` }).from(schema.providers).get()!.n
   if (!count) {
     db.insert(schema.providers).values({
-      name: 'Claude Code (CLI)',
+      name: 'Claude (pipe)',
       command: process.env.CLAUDE_BIN ?? 'claude',
       args_template: DEFAULT_CLAUDE_ARGS,
       loop_type: 'claude_print',
