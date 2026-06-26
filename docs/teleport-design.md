@@ -138,12 +138,17 @@ Conversations contain secrets, code, and private context — so the network path
 - **Remote serving** requires *all* of:
   1. `TELEPORT_NETWORK_ENABLED=1` (setting, default `0`).
   2. The daemon bound to the LAN (`HOST=0.0.0.0`) — already a deliberate opt-in.
-  3. A shared **`TELEPORT_TOKEN`** sent as a header; requests from non-localhost without
-     a matching token are rejected. (Pair two Macs by copying the token.)
-- `/teleport/*` is **read-only** (no Bash, no writes). Localhost requests skip the token;
-  remote requests require it.
-- Document clearly: enabling network teleport exposes conversation transcripts to anyone
-  on the LAN who has the token. Keep it to trusted networks.
+  3. A valid **HMAC signature**: `x-teleport-sig = HMAC(TELEPORT_TOKEN, method+url+ts)`
+     with a fresh `x-teleport-ts` (±5 min). The shared **`TELEPORT_TOKEN`** is *never
+     transmitted* — only proof of possession is. Pair two Macs by copying the token.
+- **No SSRF**: the daemon only ever proxies to a peer **actually discovered via mDNS**,
+  using that peer's *advertised* address. An arbitrary `host` string is rejected (400) —
+  the token is never attached to a caller-controlled URL.
+- `/teleport/*` is **read-only** (no Bash, no writes). Localhost requests skip auth;
+  remote requests require the signature.
+- Residual (documented, acceptable for v1): plaintext HTTP transport of the *response*
+  on the LAN, and a 5-min replay window. Keep network teleport to **trusted networks**;
+  TLS/cert-pinning is a future hardening.
 
 ## MCP tools
 

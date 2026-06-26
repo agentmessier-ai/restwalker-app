@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { hostname } from 'os'
+import { createHmac, timingSafeEqual } from 'crypto'
 import * as db from '../db.js'
 import { parseWindow, listProjectFolders, listConversations, getRawConversation } from '../teleport.js'
 import { getPeers } from '../teleport-mdns.js'
@@ -10,37 +11,59 @@ function isLocalReq(req: FastifyRequest): boolean {
   return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1'
 }
 
+// Sign requests instead of transmitting the shared token: x-teleport-sig =
+// HMAC(token, method + url + ts). The secret never crosses the wire, and the
+// timestamp bounds replay. Peers verify with their own copy of the token.
+function sign(token: string, method: string, url: string, ts: string): string {
+  return createHmac('sha256', token).update(`${method} ${url} ${ts}`).digest('hex')
+}
+function safeEqualHex(a: string, b: string): boolean {
+  if (a.length !== b.length) return false
+  try { return timingSafeEqual(Buffer.from(a, 'hex'), Buffer.from(b, 'hex')) } catch { return false }
+}
+const SIG_SKEW_MS = 300_000   // ±5 min replay window
+
 // Map a `host` param to a peer base URL, or null when it's this machine.
+// SSRF guard: only ever proxy to a peer ACTUALLY DISCOVERED via mDNS, using the
+// address that peer advertised — never an arbitrary caller-supplied host.
 function resolvePeer(host?: string): { base: string } | null {
   const me = hostname()
   if (!host || host === 'local' || host === 'localhost' || host === me) return null
   const peer = getPeers().find(p => p.name === host || p.host === host || p.addresses.includes(host))
-  if (peer) return { base: `http://${peer.host}:${peer.port}` }
-  const [h, port] = host.split(':')                  // allow explicit host[:port]
-  return { base: `http://${h}:${port || process.env.PORT || '47290'}` }
+  if (!peer) throw Object.assign(new Error(`unknown teleport peer "${host}" (not discovered on the LAN)`), { statusCode: 400 })
+  return { base: `http://${peer.host}:${peer.port}` }
 }
 
-// Proxy a /teleport/* request to a peer, presenting our shared token.
+// Proxy a /teleport/* request to a discovered peer, authenticating with an
+// HMAC signature (token is never sent in the clear).
 async function proxy(base: string, path: string, query: Record<string, string | undefined>): Promise<unknown> {
   const url = new URL(base + path)
   for (const [k, v] of Object.entries(query)) if (v != null && v !== '') url.searchParams.set(k, String(v))
   const tok = db.getSettings().TELEPORT_TOKEN
-  const res = await fetch(url, {
-    headers: tok ? { 'x-teleport-token': tok } : {},
-    signal: AbortSignal.timeout(8000),
-  })
+  const headers: Record<string, string> = {}
+  if (tok) {
+    const ts = String(Date.now())
+    headers['x-teleport-ts']  = ts
+    headers['x-teleport-sig'] = sign(tok, 'GET', url.pathname + url.search, ts)
+  }
+  const res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) })
   return res.json()
 }
 
 export default async function teleportRoutes(app: FastifyInstance) {
-  // Gate non-localhost access: requires network enabled + matching token.
+  // Gate non-localhost access: network enabled + a fresh, valid HMAC signature
+  // (the shared token is never transmitted; the signature proves possession).
   app.addHook('preHandler', async (req, reply) => {
     if (!req.url.startsWith('/teleport')) return
     if (isLocalReq(req)) return
     const cfg = db.getSettings()
     if (cfg.TELEPORT_NETWORK_ENABLED !== '1') return reply.code(403).send({ error: 'teleport network access disabled on this host' })
-    const tok = req.headers['x-teleport-token']
-    if (!cfg.TELEPORT_TOKEN || tok !== cfg.TELEPORT_TOKEN) return reply.code(401).send({ error: 'invalid or missing teleport token' })
+    if (!cfg.TELEPORT_TOKEN) return reply.code(401).send({ error: 'teleport token not configured on this host' })
+    const ts  = req.headers['x-teleport-ts']  as string | undefined
+    const sig = req.headers['x-teleport-sig'] as string | undefined
+    if (!ts || !sig) return reply.code(401).send({ error: 'missing teleport signature' })
+    if (!/^\d+$/.test(ts) || Math.abs(Date.now() - Number(ts)) > SIG_SKEW_MS) return reply.code(401).send({ error: 'stale or invalid timestamp' })
+    if (!safeEqualHex(sign(cfg.TELEPORT_TOKEN, req.method, req.url, ts), sig)) return reply.code(401).send({ error: 'invalid teleport signature' })
   })
 
   app.get('/teleport/folders', {
