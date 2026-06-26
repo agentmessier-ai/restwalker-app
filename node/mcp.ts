@@ -1,9 +1,9 @@
 /**
  * Restwalker MCP server — stdio transport for Claude Code.
  *
- * Tool input schemas are derived at startup from the live OpenAPI spec
- * at /docs/json, so they stay in sync with the API automatically.
- * Descriptions are written here for Claude UX; everything else is DRY.
+ * API-first: tool input schemas for POST endpoints are derived at startup
+ * from the live OpenAPI spec at /docs/json. Add a field to a Fastify route
+ * and it automatically appears in the MCP tool — no manual Zod duplication.
  *
  * Register with Claude Code:
  *   claude mcp add restwalker -- node /path/to/node_modules/.bin/tsx /path/to/node/mcp.ts
@@ -43,9 +43,121 @@ function text(data: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] }
 }
 
+// ── OpenAPI → Zod schema derivation ───────────────────────────────────────────
+
+interface OApiProperty {
+  type?: string | string[]
+  enum?: string[]
+  default?: unknown
+  description?: string
+  minimum?: number
+  maximum?: number
+}
+
+interface OApiBodySchema {
+  properties?: Record<string, OApiProperty>
+  required?: string[]
+}
+
+// Convert a single OpenAPI property to a Zod type
+function propToZod(prop: OApiProperty): z.ZodTypeAny {
+  const types = Array.isArray(prop.type) ? prop.type : [prop.type ?? 'string']
+  const nullable = types.includes('null')
+  const base = types.find(t => t !== 'null') ?? 'string'
+
+  let schema: z.ZodTypeAny
+
+  if (prop.enum) {
+    const vals = prop.enum as [string, ...string[]]
+    schema = z.enum(vals)
+  } else if (base === 'integer' || base === 'number') {
+    let n = z.number()
+    if (prop.minimum !== undefined) n = n.min(prop.minimum)
+    if (prop.maximum !== undefined) n = n.max(prop.maximum)
+    schema = n
+  } else if (base === 'boolean') {
+    schema = z.boolean()
+  } else {
+    schema = z.string()
+  }
+
+  if (nullable) schema = schema.nullable()
+  if (prop.description) schema = schema.describe(prop.description)
+  return schema
+}
+
+// Fetch the OpenAPI spec and extract the request body schema for a given route
+async function fetchBodySchema(path: string, method = 'post'): Promise<OApiBodySchema> {
+  const spec = await api<{ paths: Record<string, Record<string, { requestBody?: { content?: { 'application/json'?: { schema?: OApiBodySchema } } } }>> }>('GET', '/docs/json')
+  return spec.paths[path]?.[method]?.requestBody?.content?.['application/json']?.schema ?? {}
+}
+
+// Build a Zod object shape from an OpenAPI body schema, with optional field overrides
+// (overrides let individual tools add richer descriptions without duplicating types)
+function buildZodShape(
+  schema: OApiBodySchema,
+  descriptionOverrides: Record<string, string> = {},
+): Record<string, z.ZodTypeAny> {
+  const required = new Set(schema.required ?? [])
+  const shape: Record<string, z.ZodTypeAny> = {}
+  for (const [key, prop] of Object.entries(schema.properties ?? {})) {
+    const override = descriptionOverrides[key]
+    const merged = override ? { ...prop, description: override } : prop
+    let field = propToZod(merged)
+    if (!required.has(key)) field = field.optional()
+    shape[key] = field
+  }
+  return shape
+}
+
 // ── Server ─────────────────────────────────────────────────────────────────────
 
 const server = new McpServer({ name: 'restwalker', version: '1.0.0' })
+
+// Fetch and register tools whose input schema is derived from the OpenAPI spec.
+// Called once before connecting the transport.
+async function registerDerivedTools() {
+  // queue_add — all POST /queue fields, including webhooks, come from the spec
+  const queueSchema = await fetchBodySchema('/queue')
+  server.tool(
+    'queue_add',
+    'Enqueue a new background task for execution by Claude Code when the gate opens',
+    buildZodShape(queueSchema, {
+      description:      'The task prompt sent to the agent',
+      cwd:              'Working directory for the agent',
+      model:            'Model ID, e.g. claude-sonnet-4-6',
+      provider_id:      'Provider ID (omit for default)',
+      schedule:         'Recurrence — once runs immediately, others repeat',
+      webhook_pre_url:  'URL to POST before the agent starts',
+      webhook_post_url: 'URL to POST after the agent finishes (includes status, tokens, result)',
+      webhook_timeout_ms: 'Webhook HTTP timeout in ms (default 10000)',
+      webhook_retry:    'Webhook retry attempts on failure (default 2)',
+      webhook_ignore_ssl: 'Set 1 to skip TLS verification for self-signed certs',
+    }),
+    async (args) => text(await api('POST', '/queue', args)),
+  )
+
+  // task_prompt_save — POST /task-prompts fields from spec
+  const promptSchema = await fetchBodySchema('/task-prompts')
+  server.tool(
+    'task_prompt_save',
+    'Save a new version of a task prompt and optionally queue a run. Pass origin_id to add a version to an existing chain; omit to create a new prompt.',
+    buildZodShape(promptSchema, {
+      content:     'Prompt content',
+      title:       'Version label',
+      schedule:    'Recurrence schedule',
+      cwd:         'Working directory override',
+      origin_id:   'Existing prompt chain ID — omit to create new',
+      run_now:     'Queue a task run immediately',
+    }),
+    async ({ origin_id, ...rest }: Record<string, unknown>) => {
+      if (origin_id) {
+        return text(await api('POST', `/task-prompts/${origin_id}/versions`, rest))
+      }
+      return text(await api('POST', '/task-prompts', { ...rest }))
+    },
+  )
+}
 
 // ── Status & usage ─────────────────────────────────────────────────────────────
 
@@ -104,24 +216,6 @@ server.tool(
   async ({ id }) => text(await api('GET', `/queue/${id}`)),
 )
 
-server.tool(
-  'queue_add',
-  'Enqueue a new background task for execution by Claude Code when the gate opens',
-  {
-    description:      z.string().describe('The task prompt sent to the agent'),
-    cwd:              z.string().optional().describe('Working directory for the agent'),
-    model:            z.string().optional().describe('Model ID, e.g. claude-sonnet-4-6'),
-    provider_id:      z.number().int().optional().describe('Provider ID (omit for default)'),
-    schedule:         z.enum(['once','hourly','daily','weekly','monthly']).default('once').optional()
-                        .describe('Recurrence — once runs immediately, others repeat'),
-    webhook_pre_url:  z.string().optional().describe('URL to POST before the agent starts'),
-    webhook_post_url: z.string().optional().describe('URL to POST after the agent finishes (includes status, tokens, result)'),
-    webhook_timeout_ms: z.number().int().optional().describe('Webhook HTTP timeout in ms (default 10000)'),
-    webhook_retry:    z.number().int().optional().describe('Webhook retry attempts on failure (default 2)'),
-    webhook_ignore_ssl: z.number().int().min(0).max(1).optional().describe('Set 1 to skip TLS verification for self-signed certs'),
-  },
-  async (args) => text(await api('POST', '/queue', args)),
-)
 
 server.tool(
   'queue_cancel',
@@ -244,26 +338,6 @@ server.tool(
 
 // ── Task prompts ──────────────────────────────────────────────────────────────
 
-server.tool(
-  'task_prompt_save',
-  'Save a new version of a task prompt and optionally queue a run. Pass origin_id to add a version to an existing chain; omit to create a new prompt.',
-  {
-    content:     z.string().describe('Prompt content'),
-    title:       z.string().optional().describe('Version label'),
-    schedule:    z.enum(['once','hourly','daily','weekly','monthly']).optional().default('once'),
-    cwd:         z.string().optional().describe('Working directory override'),
-    model:       z.string().optional(),
-    provider_id: z.number().optional(),
-    origin_id:   z.number().optional().describe('Existing prompt chain ID — omit to create new'),
-    run_now:     z.boolean().optional().describe('Queue a task run immediately'),
-  },
-  async ({ content, title, schedule, cwd, model, provider_id, origin_id, run_now }) => {
-    if (origin_id) {
-      return text(await api('POST', `/task-prompts/${origin_id}/versions`, { content, title, schedule, cwd, model, provider_id, run_now }))
-    }
-    return text(await api('POST', '/task-prompts', { content, title, schedule, cwd, model, provider_id, run_now }))
-  },
-)
 
 server.tool(
   'task_prompt_versions',
@@ -274,5 +348,6 @@ server.tool(
 
 // ── Connect ────────────────────────────────────────────────────────────────────
 
+await registerDerivedTools()
 const transport = new StdioServerTransport()
 await server.connect(transport)
