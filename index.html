@@ -183,6 +183,8 @@
       <button id="tab-dash" onclick="switchTab('dash')" style="background:var(--accent);color:white;border:none;border-radius:6px;padding:5px 10px;cursor:pointer;font-family:inherit;font-size:12px">Dashboard</button>
       <button id="tab-queue" onclick="switchTab('queue')" style="background:var(--blue);color:white;border:none;border-radius:6px;padding:6px 14px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;letter-spacing:0.01em">⚡ Queue</button>
     </div>
+    <a href="/docs" target="_blank" style="background:var(--bg);border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:6px 12px;font-size:12px;text-decoration:none;font-family:inherit">API Docs</a>
+    <button onclick="openMcpInstall()" style="background:var(--bg);border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;font-family:inherit">MCP Install</button>
     <button class="gear-btn" title="Settings" onclick="openSettings()">⚙</button>
   </div>
 </header>
@@ -1653,6 +1655,31 @@ async function rqSaveAndQueue() {
 }
 
 init();
+
+// ── MCP Install modal ─────────────────────────────────────────────────────────
+
+async function openMcpInstall() {
+  document.getElementById('mcp-modal').style.display = 'flex'
+  const meta = await fetch('/meta').then(r => r.json()).catch(() => ({ installPath: '~/restwalker' }))
+  const cmd = `claude mcp add --scope user restwalker -- node ${meta.installPath}/node/node_modules/.bin/tsx ${meta.installPath}/node/mcp.ts`
+  document.getElementById('mcp-install-cmd').textContent = cmd
+}
+
+function closeMcpInstall() {
+  document.getElementById('mcp-modal').style.display = 'none'
+}
+
+async function copyMcpInstall() {
+  const cmd = document.getElementById('mcp-install-cmd').textContent
+  await navigator.clipboard.writeText(cmd)
+  const btn = document.getElementById('mcp-copy-btn')
+  btn.textContent = 'Copied!'
+  setTimeout(() => btn.textContent = 'Copy', 2000)
+}
+
+document.getElementById('mcp-modal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeMcpInstall()
+})
 </script>
 
 <!-- Requeue panel -->
@@ -1693,6 +1720,22 @@ init();
     </label>
     <button onclick="closeRequeuePanel()" style="background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;font-family:inherit">Cancel</button>
     <button onclick="rqSaveAndQueue()" style="background:var(--blue);color:#fff;border:none;border-radius:6px;padding:7px 16px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">Save & Queue</button>
+  </div>
+</div>
+
+<!-- MCP Install modal -->
+<div id="mcp-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:300;align-items:center;justify-content:center">
+  <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:24px;width:min(640px,90vw);box-shadow:0 8px 40px rgba(0,0,0,.5)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <span style="font-size:14px;font-weight:600;color:var(--text)">Install MCP Server</span>
+      <button onclick="closeMcpInstall()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;line-height:1">✕</button>
+    </div>
+    <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Run this command in your terminal to register restwalker as an MCP server in Claude Code (user scope — available in all projects):</p>
+    <div style="position:relative">
+      <pre id="mcp-install-cmd" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px;font-size:11px;font-family:var(--mono);color:var(--text);white-space:pre-wrap;word-break:break-all;margin:0"></pre>
+      <button onclick="copyMcpInstall()" id="mcp-copy-btn" style="position:absolute;top:8px;right:8px;background:var(--card);border:1px solid var(--border);color:var(--muted);border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer;font-family:inherit">Copy</button>
+    </div>
+    <p style="font-size:11px;color:var(--muted);margin:12px 0 0">After running, restart Claude Code or reload MCP servers. The server exposes 22 tools for managing the task queue from within Claude Code.</p>
   </div>
 </div>
 

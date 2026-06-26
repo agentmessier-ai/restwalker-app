@@ -212,6 +212,61 @@ server.tool(
   },
 )
 
+// ── Artifacts ─────────────────────────────────────────────────────────────────
+
+server.tool(
+  'queue_artifacts',
+  'List artifacts declared by a completed task (files the agent created and tagged for review)',
+  { task_id: z.number().describe('Task ID') },
+  async ({ task_id }) => text(await api('GET', `/queue/${task_id}/artifacts`)),
+)
+
+// ── System prompt ─────────────────────────────────────────────────────────────
+
+server.tool(
+  'system_prompt_get',
+  'Get the active system prompt injected into every task',
+  {},
+  async () => text(await api('GET', '/system-prompt')),
+)
+
+server.tool(
+  'system_prompt_set',
+  'Save a new version of the system prompt (becomes active immediately)',
+  { content: z.string().describe('New system prompt content'), label: z.string().optional().describe('Version label') },
+  async ({ content, label }) => text(await api('POST', '/system-prompt', { content, label })),
+)
+
+// ── Task prompts ──────────────────────────────────────────────────────────────
+
+server.tool(
+  'task_prompt_save',
+  'Save a new version of a task prompt and optionally queue a run. Pass origin_id to add a version to an existing chain; omit to create a new prompt.',
+  {
+    content:     z.string().describe('Prompt content'),
+    title:       z.string().optional().describe('Version label'),
+    schedule:    z.enum(['once','hourly','daily','weekly','monthly']).optional().default('once'),
+    cwd:         z.string().optional().describe('Working directory override'),
+    model:       z.string().optional(),
+    provider_id: z.number().optional(),
+    origin_id:   z.number().optional().describe('Existing prompt chain ID — omit to create new'),
+    run_now:     z.boolean().optional().describe('Queue a task run immediately'),
+  },
+  async ({ content, title, schedule, cwd, model, provider_id, origin_id, run_now }) => {
+    if (origin_id) {
+      return text(await api('POST', `/task-prompts/${origin_id}/versions`, { content, title, schedule, cwd, model, provider_id, run_now }))
+    }
+    return text(await api('POST', '/task-prompts', { content, title, schedule, cwd, model, provider_id, run_now }))
+  },
+)
+
+server.tool(
+  'task_prompt_versions',
+  'List all versions of a task prompt chain',
+  { prompt_id: z.number().describe('Any prompt ID in the chain') },
+  async ({ prompt_id }) => text(await api('GET', `/task-prompts/${prompt_id}/versions`)),
+)
+
 // ── Connect ────────────────────────────────────────────────────────────────────
 
 const transport = new StdioServerTransport()
