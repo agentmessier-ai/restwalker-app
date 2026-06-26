@@ -41,7 +41,7 @@ async function callWebhook(
 
 export const webhookPlugin: Plugin = {
   name: 'webhook',
-  register(ctx) {
+  register(ctx, _config) {
     ctx.on('pre_task', async ({ task }) => {
       if (!task.webhook_pre_url) return
       await callWebhook(

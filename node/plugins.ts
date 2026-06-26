@@ -54,9 +54,17 @@ export interface PluginContext {
   on(hook: 'on_message',     handler: HookHandler<OnMessageContext>):     void
 }
 
+export interface PluginSetting {
+  label:       string
+  default:     string | boolean | number
+  sensitive?:  boolean
+  placeholder?: string
+}
+
 export interface Plugin {
-  name: string
-  register(ctx: PluginContext): void
+  name:      string
+  settings?: Record<string, PluginSetting>
+  register(ctx: PluginContext, config: Record<string, unknown>): void
 }
 
 export interface PluginEntry {
@@ -67,6 +75,8 @@ export interface PluginEntry {
   hooks:    HookName[]
   error:    string | null
   path:     string | null
+  settings: Record<string, PluginSetting> | null
+  config:   Record<string, unknown>
 }
 
 // ── Persistence ────────────────────────────────────────────────────────────────
@@ -76,12 +86,16 @@ const PLUGINS_FILE = join(homedir(), '.restwalker', 'plugins.json')
 interface PluginsPersisted {
   disabled: string[]
   external: { name: string; path: string }[]
+  config:   Record<string, Record<string, unknown>>
 }
 
 function loadPersisted(): PluginsPersisted {
-  if (!existsSync(PLUGINS_FILE)) return { disabled: [], external: [] }
-  try { return JSON.parse(readFileSync(PLUGINS_FILE, 'utf8')) }
-  catch { return { disabled: [], external: [] } }
+  if (!existsSync(PLUGINS_FILE)) return { disabled: [], external: [], config: {} }
+  try {
+    const d = JSON.parse(readFileSync(PLUGINS_FILE, 'utf8'))
+    return { disabled: d.disabled ?? [], external: d.external ?? [], config: d.config ?? {} }
+  }
+  catch { return { disabled: [], external: [], config: {} } }
 }
 
 function savePersisted(data: PluginsPersisted): void {
@@ -108,6 +122,16 @@ class PluginManager {
     const hooks: HookName[] = []
     const handlers  = new Map<HookName, HookHandler<any>[]>()
 
+    // Resolve config: stored values override defaults
+    const settings  = plugin.settings ?? null
+    const stored    = persisted.config[plugin.name] ?? {}
+    const config: Record<string, unknown> = {}
+    if (settings) {
+      for (const [key, field] of Object.entries(settings)) {
+        config[key] = key in stored ? stored[key] : field.default
+      }
+    }
+
     const entry: PluginEntry = {
       name:     plugin.name,
       enabled,
@@ -116,6 +140,8 @@ class PluginManager {
       hooks,
       error:    null,
       path:     opts.path ?? null,
+      settings,
+      config,
     }
 
     const ctx: PluginContext = {
@@ -128,7 +154,7 @@ class PluginManager {
     }
 
     try {
-      plugin.register(ctx)
+      plugin.register(ctx, config)
       this._log.info(`[plugins] registered: ${plugin.name}${enabled ? '' : ' (disabled)'}`)
     } catch (e) {
       entry.error = (e as Error).message
@@ -137,6 +163,16 @@ class PluginManager {
 
     this.records.set(plugin.name, { entry, handlers })
     return entry
+  }
+
+  saveConfig(name: string, values: Record<string, unknown>): void {
+    const rec = this.records.get(name)
+    if (!rec) throw new Error(`plugin "${name}" not found`)
+    const p = loadPersisted()
+    p.config[name] = { ...(p.config[name] ?? {}), ...values }
+    savePersisted(p)
+    // Update live config so subsequent hook calls see new values
+    Object.assign(rec.entry.config, values)
   }
 
   async loadExternal(filePath: string): Promise<PluginEntry> {

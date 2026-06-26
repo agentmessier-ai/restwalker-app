@@ -1793,6 +1793,38 @@ async function loadPlugins() {
       ? `<span style="background:#1e3a5f;color:#60a5fa;border-radius:4px;padding:1px 6px;font-size:10px">built-in</span>`
       : `<span style="background:#1a3a2a;color:#4ade80;border-radius:4px;padding:1px 6px;font-size:10px">external</span>`
     const pathHint = p.path ? `<div style="font-size:10px;color:var(--muted);margin-top:4px;word-break:break-all">${p.path}</div>` : ''
+
+    // Settings form — rendered from plugin.settings declaration
+    let settingsHtml = ''
+    if (p.settings && Object.keys(p.settings).length > 0) {
+      const fields = Object.entries(p.settings).map(([key, field]) => {
+        const val = p.config?.[key] ?? field.default
+        const inputStyle = 'width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--card);color:var(--text);font-size:12px;font-family:inherit;box-sizing:border-box'
+        let input
+        if (typeof field.default === 'boolean') {
+          input = `<input type="checkbox" ${val ? 'checked' : ''} data-key="${key}"
+            onchange="pluginConfigChange('${p.name}', '${key}', this.checked)"
+            style="width:16px;height:16px;cursor:pointer;accent-color:var(--blue)">`
+        } else if (typeof field.default === 'number') {
+          input = `<input type="number" value="${val}" data-key="${key}"
+            onchange="pluginConfigChange('${p.name}', '${key}', Number(this.value))"
+            style="${inputStyle}">`
+        } else {
+          input = `<input type="${field.sensitive ? 'password' : 'text'}"
+            value="${field.sensitive ? '' : (val || '')}"
+            placeholder="${field.placeholder || ''}" data-key="${key}"
+            onchange="pluginConfigChange('${p.name}', '${key}', this.value)"
+            style="${inputStyle}">`
+        }
+        const row = typeof field.default === 'boolean'
+          ? `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+               <span style="font-size:11px;color:var(--muted)">${field.label}</span>${input}</div>`
+          : `<div><div style="font-size:11px;color:var(--muted);margin-bottom:3px">${field.label}</div>${input}</div>`
+        return row
+      }).join('')
+      settingsHtml = `<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:8px">${fields}</div>`
+    }
+
     card.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
         <div style="flex:1;min-width:0">
@@ -1809,9 +1841,18 @@ async function loadPlugins() {
             style="width:36px;height:20px;cursor:pointer;accent-color:var(--blue)">
         </label>
       </div>
+      ${settingsHtml}
     `
     list.appendChild(card)
   }
+}
+
+async function pluginConfigChange(name, key, value) {
+  await fetch(`/plugins/${encodeURIComponent(name)}/config`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ [key]: value }),
+  })
 }
 
 async function togglePlugin(name, enabled) {

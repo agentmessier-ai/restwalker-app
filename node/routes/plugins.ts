@@ -1,6 +1,5 @@
 import type { FastifyInstance } from 'fastify'
 import { plugins } from '../plugins.js'
-import { loadOpenClawPlugin, persistOpenClawEntry } from '../openclaw-adapter.js'
 
 export default async function pluginRoutes(app: FastifyInstance) {
   // GET /plugins — list all registered plugins
@@ -80,24 +79,18 @@ export default async function pluginRoutes(app: FastifyInstance) {
     }
   })
 
-  // POST /plugins/install-openclaw — load an OpenClaw-compatible plugin
-  app.post('/plugins/install-openclaw', {
+  // POST /plugins/:name/config — save plugin settings values
+  app.post('/plugins/:name/config', {
     schema: {
       tags: ['plugins'],
-      summary: 'Install an OpenClaw-compatible plugin from a package name or local path',
-      body: {
-        type: 'object',
-        required: ['path'],
-        properties: { path: { type: 'string' } },
-      },
+      summary: 'Save config values for a plugin',
+      body: { type: 'object', additionalProperties: true },
     },
   }, async (req, reply) => {
-    const { path } = req.body as { path: string }
+    const { name } = req.params as { name: string }
     try {
-      const { plugin, manifest, path: resolvedPath } = await loadOpenClawPlugin(path)
-      const entry = plugins.register(plugin, { builtin: false, path: resolvedPath, openclaw: true })
-      persistOpenClawEntry(plugin.name, resolvedPath)
-      return { ok: true, plugin: entry, manifest }
+      plugins.saveConfig(name, req.body as Record<string, unknown>)
+      return { ok: true }
     } catch (e) {
       return reply.code(400).send({ error: (e as Error).message })
     }

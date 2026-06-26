@@ -15,15 +15,25 @@ A restwalker plugin is a JS/TS file that registers handlers on lifecycle hooks. 
 ```typescript
 export default {
   name: 'my-plugin',          // unique, kebab-case
-  register(ctx) {
-    ctx.on('post_task', ({ task, status, tokensUsed }) => {
-      // ...
+
+  // Optional — declares fields the host will render as a settings form
+  settings: {
+    webhookUrl: { label: 'Webhook URL', default: '' },
+    channel:    { label: 'Channel',     default: '#general' },
+    onFailure:  { label: 'Failure only', default: false },
+  },
+
+  // config is populated from stored values (falling back to defaults)
+  register(ctx, config) {
+    ctx.on('post_task', ({ task, status }) => {
+      if (config.onFailure && status !== 'failed') return
+      // config.webhookUrl, config.channel, ...
     })
   }
 }
 ```
 
-That's the whole interface. No framework, no declarations.
+No framework. If your plugin has no configurable fields, omit `settings` and leave the second arg unused.
 
 ---
 
@@ -73,15 +83,49 @@ That's the whole interface. No framework, no declarations.
 
 ---
 
+## Settings
+
+Declare a `settings` object to get a form rendered automatically in the Plugins panel:
+
+```typescript
+settings: {
+  webhookUrl: { label: 'Webhook URL',   default: '',      sensitive: true,  placeholder: 'https://...' },
+  channel:    { label: 'Channel',       default: '#ops'                                                },
+  onFailure:  { label: 'Failure only',  default: false                                                 },
+  maxRetries: { label: 'Max retries',   default: 3                                                     },
+}
+```
+
+| Default type | Rendered as          |
+|--------------|----------------------|
+| `string`     | Text input           |
+| `boolean`    | Toggle checkbox      |
+| `number`     | Number input         |
+
+`sensitive: true` masks the text input. `placeholder` adds hint text.
+
+Values are stored in `~/.restwalker/plugins.json` and passed as the second argument to `register()`. The host merges stored values with defaults at load time — new fields in `settings` appear with their default until the user saves.
+
+Via API: `POST /plugins/:name/config` with `{ key: value }` (partial updates are fine).
+
+---
+
 ## Example — post to Slack on task completion
 
 ```typescript
 export default {
   name: 'slack-notify',
-  register(ctx) {
+
+  settings: {
+    webhookUrl: { label: 'Webhook URL', default: '', sensitive: true },
+    onFailure:  { label: 'Failure only', default: false },
+  },
+
+  register(ctx, config) {
     ctx.on('post_task', async ({ task, status }) => {
-      const url = process.env.SLACK_WEBHOOK_URL
+      const url = config.webhookUrl as string
       if (!url) return
+      if (config.onFailure && status !== 'failed') return
       await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -94,7 +138,7 @@ export default {
 }
 ```
 
-Config, storage, and any other concerns are the plugin's own responsibility.
+Storage, caching, or any other concerns beyond config are the plugin's own responsibility.
 
 ---
 
@@ -110,8 +154,9 @@ POST /plugins/install
 The host will:
 1. Import the file
 2. Validate it exports `{ name, register }`
-3. Call `register(ctx)` to wire the handlers
-4. Show the plugin in the Plugins panel with its registered hooks
+3. Merge stored config values with `settings` defaults
+4. Call `register(ctx, config)` to wire the handlers
+5. Show the plugin in the Plugins panel with its registered hooks and settings form
 
 ---
 
