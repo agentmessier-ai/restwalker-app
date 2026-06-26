@@ -1027,11 +1027,43 @@ function qDescPreview(desc) {
 
 function renderTaskDetail(t, hasSession) {
   const cached = qSessionCache.get(t.id)
+  const artifactCached = qArtifactCache.get(t.id)
   let html = ''
+
+  // Workspace path
+  if (t.workspace_path) {
+    html += `<div style="font-size:11px;color:var(--muted);margin-bottom:8px">
+      📁 Workspace: <code style="color:var(--text)">${escHtml(t.workspace_path)}</code>
+    </div>`
+  }
+
   html += `<div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;max-height:320px;overflow-y:auto" class="md-body">${renderMd(t.description)}</div>`
   if (t.result) {
     html += `<div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;max-height:240px;overflow-y:auto" class="md-body">${renderMd(t.result)}</div>`
   }
+
+  // Artifacts
+  if (t.status === 'done') {
+    if (!artifactCached) {
+      html += `<div id="artifact-loading-${t.id}" style="color:var(--muted);font-size:11px">Loading artifacts…</div>`
+      loadArtifacts(t.id)
+    } else if (artifactCached.artifacts?.length) {
+      html += `<div style="margin-bottom:8px">
+        <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Artifacts</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">`
+      for (const a of artifactCached.artifacts) {
+        const icon = artifactIcon(a.mime_type)
+        html += `<button onclick="openArtifactViewer(${a.id},'${escHtml(a.path.split('/').pop())}','${escHtml(a.mime_type)}')"
+          style="display:flex;align-items:center;gap:5px;background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.25);color:#a5b4fc;border-radius:5px;padding:4px 10px;font-size:11px;cursor:pointer;font-family:inherit"
+          title="${escHtml(a.description || a.path)}">
+          ${icon} ${escHtml(a.path.split('/').pop())}
+          <span style="color:rgba(165,180,252,.5);font-size:10px">${fmtBytes(a.size)}</span>
+        </button>`
+      }
+      html += `</div></div>`
+    }
+  }
+
   if (!hasSession) {
     html += `<div style="color:var(--muted);font-size:11px;font-style:italic">No session recorded</div>`
   } else if (!cached) {
@@ -1045,6 +1077,20 @@ function renderTaskDetail(t, hasSession) {
   return html
 }
 
+function artifactIcon(mime) {
+  if (mime === 'text/html') return '🌐'
+  if (mime === 'application/json') return '{}'
+  if (mime === 'text/markdown') return '📝'
+  if (mime.startsWith('image/')) return '🖼'
+  return '📄'
+}
+
+function fmtBytes(n) {
+  if (n < 1024) return n + 'B'
+  if (n < 1048576) return (n/1024).toFixed(1) + 'KB'
+  return (n/1048576).toFixed(1) + 'MB'
+}
+
 async function loadSession(taskId) {
   try {
     const data = await fetch(`/queue/${taskId}/session`).then(r => r.json())
@@ -1054,10 +1100,57 @@ async function loadSession(taskId) {
   }
   const expandEl = document.getElementById(`task-expand-${taskId}`)
   if (!expandEl || !qExpanded.has(taskId)) return
-  // Re-render the detail section
-  const tasks = Array.from(document.querySelectorAll('[id^="task-row-"]'))
-  // Simple: just refresh queue but preserve expansion
   refreshQueue()
+}
+
+const qArtifactCache = new Map()
+
+async function loadArtifacts(taskId) {
+  try {
+    const data = await fetch(`/queue/${taskId}/artifacts`).then(r => r.json())
+    qArtifactCache.set(taskId, data)
+  } catch(e) {
+    qArtifactCache.set(taskId, { artifacts: [] })
+  }
+  if (qExpanded.has(taskId)) refreshQueue()
+}
+
+async function openArtifactViewer(artifactId, filename, mimeType) {
+  const panel = document.getElementById('artifact-panel')
+  const title = document.getElementById('artifact-panel-title')
+  const body  = document.getElementById('artifact-panel-body')
+  if (!panel) return
+
+  title.textContent = filename
+  body.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:20px">Loading…</div>'
+  panel.style.display = 'flex'
+
+  try {
+    const res = await fetch(`/artifacts/${artifactId}/content`)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const text = await res.text()
+
+    if (mimeType === 'text/html') {
+      const blob = new Blob([text], {type:'text/html'})
+      const url  = URL.createObjectURL(blob)
+      body.innerHTML = `<iframe sandbox="allow-scripts" style="width:100%;flex:1;border:none" src="${url}"></iframe>`
+    } else if (mimeType === 'text/markdown') {
+      body.innerHTML = `<div class="md-body" style="padding:16px;overflow-y:auto;flex:1">${renderMd(text)}</div>`
+    } else if (mimeType === 'application/json') {
+      let pretty = text
+      try { pretty = JSON.stringify(JSON.parse(text), null, 2) } catch {}
+      body.innerHTML = `<pre style="padding:16px;overflow:auto;flex:1;margin:0;font-size:12px;font-family:var(--mono);color:var(--text);white-space:pre-wrap">${escHtml(pretty)}</pre>`
+    } else {
+      body.innerHTML = `<pre style="padding:16px;overflow:auto;flex:1;margin:0;font-size:12px;font-family:var(--mono);color:var(--text);white-space:pre-wrap">${escHtml(text)}</pre>`
+    }
+  } catch(e) {
+    body.innerHTML = `<div style="color:var(--red);padding:20px;font-size:12px">Error: ${escHtml(e.message)}</div>`
+  }
+}
+
+function closeArtifactViewer() {
+  const panel = document.getElementById('artifact-panel')
+  if (panel) panel.style.display = 'none'
 }
 
 function renderSession(turns) {
@@ -1185,5 +1278,14 @@ async function queueForceRun(id) {
 
 init();
 </script>
+
+<!-- Artifact viewer slide-in panel -->
+<div id="artifact-panel" style="display:none;position:fixed;top:0;right:0;width:min(680px,100vw);height:100vh;background:var(--surface);border-left:1px solid var(--border);z-index:200;flex-direction:column;box-shadow:-4px 0 24px rgba(0,0,0,.4)">
+  <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);flex-shrink:0">
+    <span style="font-size:13px;font-weight:600;color:var(--text);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="artifact-panel-title"></span>
+    <button onclick="closeArtifactViewer()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;line-height:1;padding:2px 6px" title="Close">✕</button>
+  </div>
+  <div id="artifact-panel-body" style="flex:1;overflow:hidden;display:flex;flex-direction:column"></div>
+</div>
 </body>
 </html>

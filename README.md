@@ -76,6 +76,27 @@ Tasks have a description (the prompt), an optional working directory, model, pro
 | `once` | Runs once when the gate opens |
 | `hourly` / `daily` / `weekly` / `monthly` | Automatically re-queues after each run |
 
+## Task workspace and artifacts
+
+Every task gets its own workspace folder at `~/.restwalker/workspace/<task-id>/`. The agent starts there by default (override with a custom working directory if needed).
+
+### Artifact protocol
+
+Restwalker injects a preamble into every task prompt that tells the agent how to declare artifacts — files it creates that you should see. When the agent writes a report, a script, a skill, or any other output meant for you, it outputs a declaration line:
+
+```
+ARTIFACT: {"path": "/absolute/path/to/file", "description": "one-line description"}
+```
+
+Restwalker parses these declarations after each task and stores them in the database. They appear as clickable chips in the queue view. Clicking a chip opens a slide-in viewer:
+
+- **Markdown** — rendered
+- **HTML** — rendered in a sandboxed iframe
+- **JSON** — pretty-printed
+- **Text / code** — syntax-highlighted preformatted block
+
+This works with any agent provider, not just Claude Code — the preamble is plain text injected into the prompt.
+
 ## Agent providers
 
 The default provider runs `claude --print --permission-mode auto --model {{model}} {{task}}`. You can add any provider with a custom command and args template using `{{task}}`, `{{model}}`, and `{{cwd}}` placeholders.
@@ -111,6 +132,8 @@ Key endpoints:
 | `/queue` | POST | Add a task |
 | `/queue/:id/force-run` | POST | Force-run bypassing the gate |
 | `/queue/:id/session` | GET | Session transcript with thinking blocks |
+| `/queue/:id/artifacts` | GET | List artifacts declared by a task |
+| `/artifacts/:id/content` | GET | Raw artifact file content |
 | `/queue/stats` | GET | Counts by status |
 | `/providers` | GET/POST | List or add agent providers |
 | `/models` | GET | Live Anthropic model list |
@@ -129,7 +152,8 @@ Key endpoints:
 | `node/schema.ts` | Drizzle table definitions — single source of truth |
 | `node/runner.ts` | better-queue worker, provider resolution, gate logic |
 | `node/scheduler.ts` | Keychain read, Anthropic API fetch, time gate, budget logic |
-| `node/session.ts` | Session JSONL parser and analysis |
+| `node/session.ts` | Session JSONL parser, analysis, and artifact extraction |
+| `node/mime.ts` | Mime-type lookup helper (no external dependency) |
 | `node/mcp.ts` | MCP server (stdio, 17 tools) |
 | `index.html` | Dashboard UI (no build step) |
 | `install.sh` | One-command installer with interactive MCP registration |

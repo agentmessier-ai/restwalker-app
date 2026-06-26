@@ -83,9 +83,10 @@ const S = {
       schedule:     { type: 'string', enum: ['once','hourly','daily','weekly','monthly'] },
       next_run_at:  { type: 'string', nullable: true },
       status:       { type: 'string', enum: ['scheduled','pending','running','done','failed','cancelled'] },
-      result:       { type: 'string', nullable: true },
-      session_id:   { type: 'string', nullable: true },
-      session_path: { type: 'string', nullable: true },
+      result:         { type: 'string', nullable: true },
+      workspace_path: { type: 'string', nullable: true },
+      session_id:     { type: 'string', nullable: true },
+      session_path:   { type: 'string', nullable: true },
       tool_calls:   { type: 'integer' },
       tokens_used:  { type: 'integer' },
       created_at:   { type: 'string', format: 'date-time' },
@@ -746,6 +747,57 @@ app.get('/queue/:id/session', {
   } catch (e) {
     return reply.code(500).send({ error: (e as Error).message })
   }
+})
+
+// ── Artifacts ─────────────────────────────────────────────────────────────────
+
+app.get('/queue/:id/artifacts', {
+  schema: {
+    tags: ['queue'],
+    summary: 'List artifacts declared by a task',
+    params: { type: 'object', required: ['id'], properties: { id: { type: 'integer' } } },
+    response: {
+      200: {
+        type: 'object',
+        properties: {
+          workspace_path: { type: 'string', nullable: true },
+          artifacts: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id:          { type: 'integer' },
+                path:        { type: 'string' },
+                description: { type: 'string' },
+                mime_type:   { type: 'string' },
+                size:        { type: 'integer' },
+              },
+            },
+          },
+        },
+      },
+      404: S.error,
+    },
+  },
+}, async (req, reply) => {
+  const task = db.getTask(parseInt((req.params as { id: string }).id))
+  if (!task) return reply.code(404).send({ error: 'not found' })
+  return { workspace_path: task.workspace_path ?? null, artifacts: db.getArtifacts(task.id) }
+})
+
+app.get('/artifacts/:id/content', {
+  schema: {
+    tags: ['queue'],
+    summary: 'Get artifact file content',
+    params: { type: 'object', required: ['id'], properties: { id: { type: 'integer' } } },
+  },
+}, async (req, reply) => {
+  const artifact = db.getArtifact(parseInt((req.params as { id: string }).id))
+  if (!artifact) return reply.code(404).send({ error: 'not found' })
+  if (!existsSync(artifact.path)) return reply.code(404).send({ error: 'file not found on disk' })
+  const content = readFileSync(artifact.path, 'utf8')
+  reply.header('Content-Type', artifact.mime_type + '; charset=utf-8')
+  return reply.send(content)
 })
 
 // ── Start ──────────────────────────────────────────────────────────────────────

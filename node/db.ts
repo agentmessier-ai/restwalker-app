@@ -1,9 +1,10 @@
 import Database from 'better-sqlite3'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { eq, desc, asc, sql, and, lte, inArray } from 'drizzle-orm'
-import { existsSync, mkdirSync } from 'fs'
+import { existsSync, mkdirSync, statSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
+import { lookup as mimeLookup } from './mime.js'
 
 import * as schema from './schema.js'
 
@@ -11,6 +12,9 @@ import * as schema from './schema.js'
 
 const DATA_DIR = join(homedir(), '.restwalker')
 if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true })
+
+export const WORKSPACE_DIR = join(DATA_DIR, 'workspace')
+if (!existsSync(WORKSPACE_DIR)) mkdirSync(WORKSPACE_DIR, { recursive: true })
 
 const DB_PATH = process.env.RESTWALKER_DB ?? join(DATA_DIR, 'restwalker.db')
 
@@ -45,6 +49,7 @@ export interface HistoryBucket {
 
 export type Provider     = typeof schema.providers.$inferSelect
 export type Task         = typeof schema.tasks.$inferSelect
+export type Artifact     = typeof schema.artifacts.$inferSelect
 export type TaskStatus   = 'scheduled' | 'pending' | 'running' | 'done' | 'failed' | 'cancelled'
 export type TaskSchedule = 'once' | 'hourly' | 'daily' | 'weekly' | 'monthly'
 
@@ -103,22 +108,33 @@ export function migrate(): void {
     );
 
     CREATE TABLE IF NOT EXISTS tasks (
-      id           INTEGER PRIMARY KEY AUTOINCREMENT,
-      description  TEXT    NOT NULL,
-      cwd          TEXT    NOT NULL DEFAULT '',
-      model        TEXT    NOT NULL DEFAULT 'claude-sonnet-4-6',
-      provider_id  INTEGER REFERENCES providers(id),
-      schedule     TEXT    NOT NULL DEFAULT 'once',
-      next_run_at  TEXT,
-      status       TEXT    NOT NULL DEFAULT 'pending',
-      result       TEXT,
-      session_id   TEXT,
-      session_path TEXT,
-      tool_calls   INTEGER NOT NULL DEFAULT 0,
-      tokens_used  INTEGER NOT NULL DEFAULT 0,
-      created_at   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
-      started_at   TEXT,
-      finished_at  TEXT
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      description    TEXT    NOT NULL,
+      cwd            TEXT    NOT NULL DEFAULT '',
+      model          TEXT    NOT NULL DEFAULT 'claude-sonnet-4-6',
+      provider_id    INTEGER REFERENCES providers(id),
+      schedule       TEXT    NOT NULL DEFAULT 'once',
+      next_run_at    TEXT,
+      status         TEXT    NOT NULL DEFAULT 'pending',
+      result         TEXT,
+      workspace_path TEXT,
+      session_id     TEXT,
+      session_path   TEXT,
+      tool_calls     INTEGER NOT NULL DEFAULT 0,
+      tokens_used    INTEGER NOT NULL DEFAULT 0,
+      created_at     TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+      started_at     TEXT,
+      finished_at    TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS artifacts (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      task_id     INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      path        TEXT    NOT NULL,
+      description TEXT    NOT NULL DEFAULT '',
+      mime_type   TEXT    NOT NULL DEFAULT 'text/plain',
+      size        INTEGER NOT NULL DEFAULT 0,
+      created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
     );
   `)
 
@@ -131,10 +147,11 @@ export function migrate(): void {
 
   // Column migrations for existing DBs
   const cols = (client.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).map(c => c.name)
-  if (cols.length && !cols.includes('model'))       client.exec("ALTER TABLE tasks ADD COLUMN model TEXT NOT NULL DEFAULT 'claude-sonnet-4-6'")
-  if (cols.length && !cols.includes('provider_id')) client.exec('ALTER TABLE tasks ADD COLUMN provider_id INTEGER REFERENCES providers(id)')
-  if (cols.length && !cols.includes('schedule'))    client.exec("ALTER TABLE tasks ADD COLUMN schedule TEXT NOT NULL DEFAULT 'once'")
-  if (cols.length && !cols.includes('next_run_at')) client.exec('ALTER TABLE tasks ADD COLUMN next_run_at TEXT')
+  if (cols.length && !cols.includes('model'))          client.exec("ALTER TABLE tasks ADD COLUMN model TEXT NOT NULL DEFAULT 'claude-sonnet-4-6'")
+  if (cols.length && !cols.includes('provider_id'))    client.exec('ALTER TABLE tasks ADD COLUMN provider_id INTEGER REFERENCES providers(id)')
+  if (cols.length && !cols.includes('schedule'))       client.exec("ALTER TABLE tasks ADD COLUMN schedule TEXT NOT NULL DEFAULT 'once'")
+  if (cols.length && !cols.includes('next_run_at'))    client.exec('ALTER TABLE tasks ADD COLUMN next_run_at TEXT')
+  if (cols.length && !cols.includes('workspace_path')) client.exec('ALTER TABLE tasks ADD COLUMN workspace_path TEXT')
 
   // Seed default provider
   const count = db.select({ n: sql<number>`count(*)` }).from(schema.providers).get()!.n
@@ -336,18 +353,19 @@ export function setTaskRunning(id: number): void {
 
 export function setTaskDone(id: number, updates: {
   result?: string; session_id?: string; session_path?: string
-  tool_calls?: number; tokens_used?: number
+  tool_calls?: number; tokens_used?: number; workspace_path?: string
 }): void {
   const NOW_SQL = sql`(strftime('%Y-%m-%dT%H:%M:%SZ','now'))` as unknown as string
   const set: Partial<typeof schema.tasks.$inferInsert> = {
     status:      'done',
     finished_at: NOW_SQL,
   }
-  if (updates.result       !== undefined) set.result       = updates.result
-  if (updates.session_id   !== undefined) set.session_id   = updates.session_id
-  if (updates.session_path !== undefined) set.session_path = updates.session_path
-  if (updates.tool_calls   !== undefined) set.tool_calls   = updates.tool_calls
-  if (updates.tokens_used  !== undefined) set.tokens_used  = updates.tokens_used
+  if (updates.result         !== undefined) set.result         = updates.result
+  if (updates.session_id     !== undefined) set.session_id     = updates.session_id
+  if (updates.session_path   !== undefined) set.session_path   = updates.session_path
+  if (updates.tool_calls     !== undefined) set.tool_calls     = updates.tool_calls
+  if (updates.tokens_used    !== undefined) set.tokens_used    = updates.tokens_used
+  if (updates.workspace_path !== undefined) set.workspace_path = updates.workspace_path
   db.update(schema.tasks).set(set).where(eq(schema.tasks.id, id)).run()
 }
 
@@ -376,6 +394,31 @@ export function deleteTask(id: number): boolean {
     ))
     .run()
   return result.changes > 0
+}
+
+// ── Artifacts repository ───────────────────────────────────────────────────────
+
+export function saveArtifacts(taskId: number, items: { path: string; description: string }[]): Artifact[] {
+  return items.map(({ path, description }) => {
+    let size = 0
+    try { size = statSync(path).size } catch {}
+    return db.insert(schema.artifacts).values({
+      task_id: taskId, path, description,
+      mime_type: mimeLookup(path),
+      size,
+    }).returning().get()!
+  })
+}
+
+export function getArtifacts(taskId: number): Artifact[] {
+  return db.select().from(schema.artifacts)
+    .where(eq(schema.artifacts.task_id, taskId))
+    .orderBy(asc(schema.artifacts.id))
+    .all()
+}
+
+export function getArtifact(id: number): Artifact | null {
+  return db.select().from(schema.artifacts).where(eq(schema.artifacts.id, id)).get() ?? null
 }
 
 export function queueStats(): { scheduled: number; pending: number; running: number; done: number; failed: number; total: number } {

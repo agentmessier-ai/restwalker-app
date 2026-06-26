@@ -3,9 +3,31 @@ import { createRequire } from 'module'
 import { spawn } from 'child_process'
 import { join } from 'path'
 import { homedir } from 'os'
+import { mkdirSync, existsSync } from 'fs'
 import * as db from './db.js'
 import * as scheduler from './scheduler.js'
 import { findSessionJsonl, analyzeSession } from './session.js'
+
+// Injected into every task prompt regardless of provider — agent declares artifacts via this protocol
+const ARTIFACT_PREAMBLE = `\
+## Restwalker Artifact Protocol
+You are running as a background task inside restwalker, an idle-time Claude task runner.
+
+Your task workspace is already set as your working directory. Any files you create here are automatically tracked and shown to the user in the restwalker dashboard.
+
+When you create or generate a file that the user should see (a report, a skill, a script, generated code, data, etc.), declare it by outputting a line in this exact format:
+
+ARTIFACT: {"path": "/absolute/path/to/file", "description": "one-line description of what this file is"}
+
+Rules:
+- Use the absolute path
+- One ARTIFACT line per file
+- Declare it after the file is written, not before
+- Only declare files meant for the user to review — not intermediate scratch files
+
+---
+
+`
 
 const require = createRequire(import.meta.url)
 const SqliteStore = require('better-queue-sqlite')
@@ -13,19 +35,20 @@ const SqliteStore = require('better-queue-sqlite')
 const QUEUE_DB = join(homedir(), '.restwalker', 'queue.db')
 const POLL_MS  = parseInt(process.env.QUEUE_POLL_MS ?? '120000')
 
-function resolveProvider(task: db.Task): { command: string; args: string[] } {
+function resolveProvider(task: db.Task, workspacePath: string): { command: string; args: string[] } {
   const provider = task.provider_id
     ? db.getProvider(task.provider_id)
     : db.getDefaultProvider()
   if (!provider) throw new Error('no agent provider configured')
 
-  const cwd   = task.cwd || process.env.HOME || '.'
+  const cwd   = task.cwd || workspacePath
   const model = task.model || 'claude-sonnet-4-6'
+  const promptWithPreamble = ARTIFACT_PREAMBLE + task.description
   let template: string[]
   try { template = JSON.parse(provider.args_template) } catch { template = [provider.args_template] }
 
   const args = template.map(a =>
-    a.replace(/\{\{task\}\}/g,  task.description)
+    a.replace(/\{\{task\}\}/g,  promptWithPreamble)
      .replace(/\{\{model\}\}/g, model)
      .replace(/\{\{cwd\}\}/g,   cwd)
   )
@@ -61,10 +84,12 @@ async function processTask(input: QueuePayload): Promise<void> {
   db.setTaskRunning(task.id)
 
   const startedAt = Date.now()
-  const cwd = task.cwd || process.env.HOME || '.'
+  const workspacePath = join(db.WORKSPACE_DIR, String(task.id))
+  if (!existsSync(workspacePath)) mkdirSync(workspacePath, { recursive: true })
+  const cwd = task.cwd || workspacePath
 
   return new Promise((resolve, reject) => {
-    const { command, args } = resolveProvider(task)
+    const { command, args } = resolveProvider(task, workspacePath)
     console.log(`[queue] spawn: ${command} ${args.map(a => a.length > 60 ? a.slice(0,60)+'…' : a).join(' ')}`)
     const proc = spawn(command, args, { cwd, env: { ...process.env }, stdio: ['ignore', 'pipe', 'pipe'] })
 
@@ -88,24 +113,37 @@ async function processTask(input: QueuePayload): Promise<void> {
       let tokensUsed = 0
       let sessionId: string | null = null
 
+      let artifactDecls: { path: string; description: string }[] = []
+
       if (sessionPath) {
         try {
           const analysis = analyzeSession(sessionPath)
-          toolCalls  = analysis.toolCalls
-          tokensUsed = analysis.tokensUsed
-          sessionId  = analysis.sessionId
+          toolCalls      = analysis.toolCalls
+          tokensUsed     = analysis.tokensUsed
+          sessionId      = analysis.sessionId
+          artifactDecls  = analysis.artifacts
         } catch (e) {
           console.warn('[queue] session analysis error:', (e as Error).message)
         }
       }
 
       db.setTaskDone(task.id, {
-        result: result.slice(0, 1000),
-        session_id:   sessionId ?? undefined,
-        session_path: sessionPath ?? undefined,
-        tool_calls:   toolCalls,
-        tokens_used:  tokensUsed,
+        result:         result.slice(0, 1000),
+        session_id:     sessionId ?? undefined,
+        session_path:   sessionPath ?? undefined,
+        tool_calls:     toolCalls,
+        tokens_used:    tokensUsed,
+        workspace_path: workspacePath,
       })
+
+      if (artifactDecls.length) {
+        try {
+          const saved = db.saveArtifacts(task.id, artifactDecls)
+          console.log(`[queue] task #${task.id} saved ${saved.length} artifact(s)`)
+        } catch (e) {
+          console.warn('[queue] artifact save error:', (e as Error).message)
+        }
+      }
 
       const next = db.createNextRun(task)
       if (next) console.log(`[queue] next run of #${task.id} scheduled at ${next.next_run_at}`)

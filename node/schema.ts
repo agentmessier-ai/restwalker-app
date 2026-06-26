@@ -26,6 +26,16 @@ export const providers = sqliteTable('providers', {
   created_at:   text('created_at').notNull().default(NOW),
 })
 
+export const artifacts = sqliteTable('artifacts', {
+  id:          integer('id').primaryKey({ autoIncrement: true }),
+  task_id:     integer('task_id').notNull().references(() => tasks.id, { onDelete: 'cascade' }),
+  path:        text('path').notNull(),
+  description: text('description').notNull().default(''),
+  mime_type:   text('mime_type').notNull().default('text/plain'),
+  size:        integer('size').notNull().default(0),
+  created_at:  text('created_at').notNull().default(NOW),
+})
+
 export const tasks = sqliteTable('tasks', {
   id:          integer('id').primaryKey({ autoIncrement: true }),
   description: text('description').notNull(),
@@ -36,6 +46,7 @@ export const tasks = sqliteTable('tasks', {
   next_run_at: text('next_run_at'),
   status:      text('status').notNull().default('pending'),
   result:      text('result'),
+  workspace_path:text('workspace_path'),
   session_id:  text('session_id'),
   session_path:text('session_path'),
   tool_calls:  integer('tool_calls').notNull().default(0),

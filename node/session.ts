@@ -3,6 +3,11 @@ import { join, basename } from 'path'
 import { homedir } from 'os'
 import { CLAUDE_PROJECTS_DIR } from './db.js'
 
+export interface ArtifactDeclaration {
+  path:        string
+  description: string
+}
+
 export interface SessionAnalysis {
   sessionId:    string
   sessionPath:  string
@@ -13,6 +18,7 @@ export interface SessionAnalysis {
   userRequest:  string
   keySteps:     string[]
   outcome:      string
+  artifacts:    ArtifactDeclaration[]
 }
 
 export function findSessionJsonl(cwd: string, startedAfter: number): string | null {
@@ -38,8 +44,11 @@ export function analyzeSession(sessionPath: string): SessionAnalysis {
   const filesWritten: string[] = []
   const filesEdited: string[] = []
   const keySteps: string[] = []
+  const artifacts: ArtifactDeclaration[] = []
   const sessionId = basename(sessionPath, '.jsonl')
   let lastAssistantText = ''
+
+  const ARTIFACT_RE = /^ARTIFACT:\s*(\{.+\})\s*$/m
 
   for (const line of lines) {
     let d: Record<string, unknown>
@@ -71,6 +80,15 @@ export function analyzeSession(sessionPath: string): SessionAnalysis {
         for (const c of content as Array<Record<string, unknown>>) {
           if (c.type === 'text' && typeof c.text === 'string') {
             lastAssistantText = c.text as string
+            // Extract ARTIFACT: {...} declarations
+            let m: RegExpExecArray | null
+            const re = new RegExp(ARTIFACT_RE.source, 'gm')
+            while ((m = re.exec(c.text as string)) !== null) {
+              try {
+                const decl = JSON.parse(m[1]) as { path?: string; description?: string }
+                if (decl.path) artifacts.push({ path: decl.path, description: decl.description ?? '' })
+              } catch {}
+            }
           }
           if (c.type === 'tool_use') {
             toolCalls++
@@ -115,5 +133,6 @@ export function analyzeSession(sessionPath: string): SessionAnalysis {
     userRequest:  userRequest.trim(),
     keySteps:     deduped,
     outcome:      lastAssistantText.slice(0, 400).trim(),
+    artifacts,
   }
 }
