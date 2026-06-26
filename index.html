@@ -475,6 +475,16 @@
           <span class="slider-val" id="v-CACHE_STALE_MIN">30m</span>
         </div>
       </div>
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Task spawn timeout</div>
+          <div class="setting-hint">Kill the agent process if it runs longer than this (SIGTERM → 5s → SIGKILL)</div>
+        </div>
+        <div class="slider-wrap">
+          <input type="range" min="1" max="120" id="s-TASK_TIMEOUT_MS" oninput="document.getElementById('v-TASK_TIMEOUT_MS').textContent=this.value+'m'" step="1">
+          <span class="slider-val" id="v-TASK_TIMEOUT_MS">10m</span>
+        </div>
+      </div>
     </div>
 
     <div class="settings-group">
@@ -826,7 +836,7 @@ function buildHourSelects() {
   });
 }
 
-const SETTING_KEYS = ['CODING_WINDOW_ENABLED','CODING_START_H','CODING_END_H','TIMEZONE','FIVE_HOUR_PAUSE_PCT','WEEKLY_RESERVE_PCT','WEEKLY_HARD_STOP_PCT','POLL_INTERVAL_MIN','CACHE_STALE_MIN'];
+const SETTING_KEYS = ['CODING_WINDOW_ENABLED','CODING_START_H','CODING_END_H','TIMEZONE','FIVE_HOUR_PAUSE_PCT','WEEKLY_RESERVE_PCT','WEEKLY_HARD_STOP_PCT','POLL_INTERVAL_MIN','CACHE_STALE_MIN','TASK_TIMEOUT_MS'];
 
 function toggleCodingWindow(enabled) {
   document.getElementById('coding-window-times').style.display = enabled ? 'block' : 'none';
@@ -838,14 +848,16 @@ async function openSettings() {
   const res = await fetch('/settings');
   const cfg = await res.json();
   buildTimezoneSelect(cfg.TIMEZONE ?? 'America/Los_Angeles');
-  const SLIDER_KEYS = { FIVE_HOUR_PAUSE_PCT:'%', WEEKLY_RESERVE_PCT:'%', WEEKLY_HARD_STOP_PCT:'%', POLL_INTERVAL_MIN:'m', CACHE_STALE_MIN:'m' }
+  const SLIDER_KEYS = { FIVE_HOUR_PAUSE_PCT:'%', WEEKLY_RESERVE_PCT:'%', WEEKLY_HARD_STOP_PCT:'%', POLL_INTERVAL_MIN:'m', CACHE_STALE_MIN:'m', TASK_TIMEOUT_MS:'m' }
   for (const k of SETTING_KEYS) {
     const el = document.getElementById('s-'+k);
     if (!el) continue;
     if (el.type === 'checkbox') { el.checked = cfg[k] === '1'; toggleCodingWindow(el.checked); continue; }
-    el.value = cfg[k] ?? '';
+    // TASK_TIMEOUT_MS is stored in ms, slider is in minutes
+    const displayVal = k === 'TASK_TIMEOUT_MS' ? Math.round(parseInt(cfg[k] ?? '600000') / 60000) : cfg[k] ?? '';
+    el.value = String(displayVal);
     const vEl = document.getElementById('v-'+k);
-    if (vEl && SLIDER_KEYS[k]) vEl.textContent = (cfg[k] ?? '') + SLIDER_KEYS[k];
+    if (vEl && SLIDER_KEYS[k]) vEl.textContent = displayVal + SLIDER_KEYS[k];
     updateSliderTrack(el);
   }
   document.getElementById('save-status').style.display = 'none';
@@ -968,7 +980,9 @@ async function saveSettings() {
   for (const k of SETTING_KEYS) {
     const el = document.getElementById('s-'+k);
     if (!el) continue;
-    body[k] = el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value;
+    if (el.type === 'checkbox') { body[k] = el.checked ? '1' : '0'; continue; }
+    // TASK_TIMEOUT_MS slider is in minutes — convert back to ms
+    body[k] = k === 'TASK_TIMEOUT_MS' ? String(parseInt(el.value) * 60000) : el.value;
   }
   const res = await fetch('/settings', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
   if (res.ok) {

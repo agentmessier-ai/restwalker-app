@@ -210,7 +210,10 @@ const SqliteStore = require('better-queue-sqlite')
 
 const QUEUE_DB        = join(homedir(), '.restwalker', 'queue.db')
 const POLL_MS         = parseInt(process.env.QUEUE_POLL_MS    ?? '120000')
-const TASK_TIMEOUT_MS = parseInt(process.env.TASK_TIMEOUT_MS  ?? '600000')
+// Read at task-run time from DB settings so changes take effect without restart
+function getTaskTimeoutMs(): number {
+  return parseInt(db.getSettings().TASK_TIMEOUT_MS ?? '600000')
+}
 
 interface QueuePayload {
   id: string     // better-queue uses this as the task key
@@ -264,7 +267,7 @@ async function processTask(input: QueuePayload): Promise<void> {
   let code: number
 
   try {
-    ;({ stdout, stderr, code } = await runProcess(command, args, cwd, TASK_TIMEOUT_MS))
+    ;({ stdout, stderr, code } = await runProcess(command, args, cwd, getTaskTimeoutMs()))
   } catch (e) {
     const errMsg = (e as Error).message
     db.setTaskFailed(task.id, errMsg)

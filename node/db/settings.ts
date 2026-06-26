@@ -13,6 +13,7 @@ export interface Settings {
   WEEKLY_HARD_STOP_PCT: string
   POLL_INTERVAL_MIN:    string
   CACHE_STALE_MIN:      string
+  TASK_TIMEOUT_MS:      string   // kill timer per task spawn (default 10 min)
   [key: string]: string
 }
 
@@ -26,6 +27,7 @@ export const SETTING_DEFAULTS: Settings = {
   WEEKLY_HARD_STOP_PCT: process.env.WEEKLY_HARD_STOP_PCT  ?? '90',
   POLL_INTERVAL_MIN:    process.env.POLL_INTERVAL_MIN     ?? '5',
   CACHE_STALE_MIN:      process.env.CACHE_STALE_MIN       ?? '30',
+  TASK_TIMEOUT_MS:      process.env.TASK_TIMEOUT_MS       ?? '600000',
 }
 
 // ── Settings repository ────────────────────────────────────────────────────────
