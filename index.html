@@ -815,8 +815,8 @@ function renderNavExplain(s) {
     full  = `Hard-stopped: weekly usage (${weekly}%) is at or above the ${stop}% safety limit. Tasks stay off until your weekly budget resets, to avoid overage.`;
     act = `<button class="ne-act" onclick="openSettings()">Adjust limit</button>`;
   } else if (!s.ok && weekly >= ceiling) {
-    short = `⏸ <b>Saving your weekly budget</b> — paused above ${ceiling}% (now ${weekly}%)`;
-    full  = `You've used ${weekly}% of this week's Claude budget. RestWalker keeps the last ${reserve}% reserved for your own coding, so background tasks pause above ${ceiling}% and resume automatically as your weekly usage resets. Your 5-hour budget (${fiveH}%) is fine — the weekly pool is the limit.`;
+    short = `⏸ <b>Weekly reserve: ${reserve}%</b> kept for your coding — ${weekly}% of the week used`;
+    full  = `Your "Weekly reserve" setting keeps the last ${reserve}% of this week's Claude budget for your own coding. You're at ${weekly}% used, which is past that line (${ceiling}%), so background tasks pause and resume automatically as your weekly usage resets. Your 5-hour budget (${fiveH}%) is fine — the weekly pool is the limit. Lower the Weekly reserve in Settings to run sooner.`;
     act = `<button class="ne-act" onclick="runNowLowerReserve(${weekly})">Lower reserve &amp; run now</button>`;
   } else {
     el.innerHTML = '';   // gate open — badge already says "Idle · max"
@@ -875,13 +875,18 @@ function initNavFit() {
 // enough to clear the gate now (keeping ~5% headroom), with an explicit confirm.
 async function runNowLowerReserve(weekly) {
   const newReserve = Math.max(5, Math.floor(95 - weekly));   // ceiling = weekly + 5
+  const curReserve = currentThresholds.weekly_reserve_pct ?? 35;
+  const curCeiling = 100 - curReserve;
   const newCeiling = 100 - newReserve;
+  // Anchor the dialog on the control the user actually sets in Settings —
+  // the "Weekly reserve" slider — and show the pause % only as its effect.
   const ok = confirm(
-    `Lower the weekly coding reserve so background tasks can run now?\n\n` +
-    `• Weekly usage: ${weekly}%\n` +
-    `• Pause threshold: ${newCeiling}% (was ${100 - (currentThresholds.weekly_reserve_pct ?? 35)}%)\n` +
-    `• Reserve kept for your coding: ${newReserve}%\n\n` +
-    `You can change this back anytime in Settings.`
+    `Lower the "Weekly reserve" so background tasks can run now?\n\n` +
+    `This is the Weekly reserve slider in Settings:\n` +
+    `   ${curReserve}%  →  ${newReserve}%\n\n` +
+    `Effect: background tasks pause once weekly usage reaches ${newCeiling}% ` +
+    `instead of ${curCeiling}%. You're at ${weekly}% now, so they'll run.\n\n` +
+    `You can move it back anytime in Settings → Weekly reserve.`
   );
   if (!ok) return;
   await fetch('/settings', {
