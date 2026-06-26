@@ -1,0 +1,11 @@
+{
+  "name": "restwalker",
+  "displayName": "RestWalker",
+  "description": "Defer work to RestWalker from any Claude Code chat — queue idle-time tasks, check the queue and budget, and review results. Skills call the RestWalker MCP server.",
+  "version": "0.1.0",
+  "author": { "name": "agentmessier-ai" },
+  "homepage": "https://github.com/agentmessier-ai/restwalker",
+  "repository": "https://github.com/agentmessier-ai/restwalker",
+  "license": "MIT",
+  "keywords": ["restwalker", "task-queue", "idle", "background", "scheduler", "claude"]
+}

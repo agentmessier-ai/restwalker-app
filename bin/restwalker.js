@@ -49,6 +49,19 @@ switch (cmd) {
     break
   }
 
+  case 'mcp': {
+    // Launch the stdio MCP server — for `claude mcp add` or plugin mcpServers config.
+    const tsx = join(ROOT, 'node', 'node_modules', '.bin', 'tsx')
+    const mcp = join(ROOT, 'node', 'mcp.ts')
+    if (!existsSync(tsx)) {
+      console.error('Dependencies not installed. Run: npx @agentmessier/restwalker install')
+      process.exit(1)
+    }
+    const proc = spawn(process.execPath, [tsx, mcp], { stdio: 'inherit', cwd: ROOT })
+    proc.on('exit', code => process.exit(code ?? 0))
+    break
+  }
+
   case 'status': {
     const port = process.env.PORT ?? '47290'
     try {
@@ -75,6 +88,7 @@ Usage:
   npx @agentmessier/restwalker install     install LaunchAgent + register MCP
   npx @agentmessier/restwalker uninstall   remove LaunchAgent
   npx @agentmessier/restwalker start       run daemon in foreground
+  npx @agentmessier/restwalker mcp         run the stdio MCP server (for Claude Code)
   npx @agentmessier/restwalker status      check if daemon is running
 
 Dashboard: http://localhost:47290
