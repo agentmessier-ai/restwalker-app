@@ -219,6 +219,7 @@ app.get('/status', {
           thresholds: {
             type: 'object',
             properties: {
+              coding_window_enabled: { type: 'boolean' },
               coding_start_h:       { type: 'number' },
               coding_end_h:         { type: 'number' },
               timezone:             { type: 'string' },
@@ -246,7 +247,7 @@ app.get('/status', {
   const tz     = cfg.TIMEZONE
 
   return {
-    window:         scheduler.isCodingWindow(now, startH, endH, tz) ? 'coding' : 'idle',
+    window:         cfg.CODING_WINDOW_ENABLED === '1' && scheduler.isCodingWindow(now, startH, endH, tz) ? 'coding' : 'idle',
     next_idle_in_s: scheduler.nextIdleInS(now, startH, endH, tz),
     ok:             decision.ok,
     provider:       decision.provider,
@@ -261,6 +262,7 @@ app.get('/status', {
     },
     last_db_snapshot: snap,
     thresholds: {
+      coding_window_enabled: cfg.CODING_WINDOW_ENABLED === '1',
       coding_start_h:       startH,
       coding_end_h:         endH,
       timezone:             tz,

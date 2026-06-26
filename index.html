@@ -458,10 +458,10 @@ function barColor(pct, warnAt, stopAt) {
 function isCodingHour(date, startH, endH) {
   try {
     const h = parseInt(new Intl.DateTimeFormat('en-US',{timeZone:tz,hour:'numeric',hour12:false}).format(date));
-    return h >= startH || h < endH;
+    return startH < endH ? h >= startH && h < endH : h >= startH || h < endH;
   } catch {
     const pstH = ((date.getUTCHours() - 8 + 24) % 24);
-    return pstH >= startH || pstH < endH;
+    return startH < endH ? pstH >= startH && pstH < endH : pstH >= startH || pstH < endH;
   }
 }
 function slope(points) {
@@ -494,9 +494,9 @@ function buildCodingBands(startMs, endMs, startH, endH) {
 function renderChart(fiveH, weekly, startMs, endMs, thr) {
   const ctx = document.getElementById('chart').getContext('2d');
   if (chart) chart.destroy();
-  const startH = thr.coding_start_h ?? 16;
-  const endH   = thr.coding_end_h   ?? 2;
-  const coding = buildCodingBands(startMs, endMs, startH, endH);
+  const startH = thr.coding_start_h ?? 9;
+  const endH   = thr.coding_end_h   ?? 18;
+  const coding = thr.coding_window_enabled ? buildCodingBands(startMs, endMs, startH, endH) : [];
 
   chart = new Chart(ctx, {
     type: 'line',
