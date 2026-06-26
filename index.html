@@ -278,6 +278,34 @@
       </select>
       <button onclick="queueAddTask()" style="background:var(--blue);color:#fff;border:none;border-radius:6px;padding:7px 14px;cursor:pointer;font-family:inherit;font-size:13px;white-space:nowrap">Add to queue</button>
     </div>
+    <div style="margin-top:8px">
+      <button onclick="qToggleAdvanced()" id="q-advanced-toggle" style="background:none;border:none;color:var(--muted);font-size:11px;cursor:pointer;font-family:inherit;padding:0;display:flex;align-items:center;gap:4px">▸ Advanced</button>
+      <div id="q-advanced" style="display:none;margin-top:10px;flex-direction:column;gap:8px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div>
+            <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:4px">Pre-execution URL</div>
+            <input id="q-webhook-pre" placeholder="https://…" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:inherit;box-sizing:border-box">
+          </div>
+          <div>
+            <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:4px">Post-execution URL</div>
+            <input id="q-webhook-post" placeholder="https://…" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:inherit;box-sizing:border-box">
+          </div>
+        </div>
+        <div style="display:flex;gap:12px;align-items:center">
+          <div>
+            <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:4px">Timeout (ms)</div>
+            <input id="q-webhook-timeout" type="number" value="10000" min="1000" max="60000" style="width:100px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:inherit">
+          </div>
+          <div>
+            <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:4px">Retries</div>
+            <input id="q-webhook-retry" type="number" value="2" min="0" max="10" style="width:70px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:inherit">
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text);cursor:pointer;margin-top:14px">
+            <input type="checkbox" id="q-webhook-ignore-ssl" style="accent-color:var(--blue)"> Ignore SSL errors
+          </label>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="section" style="margin-bottom:16px">
@@ -1544,6 +1572,14 @@ function qToggleExpand(taskId, event) {
   refreshQueue()
 }
 
+function qToggleAdvanced() {
+  const el = document.getElementById('q-advanced')
+  const btn = document.getElementById('q-advanced-toggle')
+  const open = el.style.display === 'none' || el.style.display === ''
+  el.style.display = open ? 'flex' : 'none'
+  btn.textContent = (open ? '▾' : '▸') + ' Advanced'
+}
+
 async function queueAddTask() {
   const desc       = document.getElementById('q-desc').value.trim()
   const selVal     = document.getElementById('q-cwd-select').value
@@ -1554,11 +1590,17 @@ async function queueAddTask() {
   const providerRaw = document.getElementById('q-provider').value
   const provider_id = providerRaw ? parseInt(providerRaw) : undefined
   const schedule    = document.getElementById('q-schedule').value || 'once'
+  const webhook_pre_url    = document.getElementById('q-webhook-pre').value.trim() || undefined
+  const webhook_post_url   = document.getElementById('q-webhook-post').value.trim() || undefined
+  const webhook_timeout_ms = parseInt(document.getElementById('q-webhook-timeout').value) || 10000
+  const webhook_retry      = parseInt(document.getElementById('q-webhook-retry').value) ?? 2
+  const webhook_ignore_ssl = document.getElementById('q-webhook-ignore-ssl').checked ? 1 : 0
   if (!desc) return alert('Description required')
   const r = await fetch('/queue', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ description: desc, cwd, model, provider_id, schedule }),
+    body: JSON.stringify({ description: desc, cwd, model, provider_id, schedule,
+      webhook_pre_url, webhook_post_url, webhook_timeout_ms, webhook_retry, webhook_ignore_ssl }),
   }).then(r => r.json())
   if (r.ok) {
     document.getElementById('q-desc').value = ''

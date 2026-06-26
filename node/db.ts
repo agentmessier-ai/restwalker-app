@@ -51,6 +51,7 @@ export type Provider     = typeof schema.providers.$inferSelect
 export type Task         = typeof schema.tasks.$inferSelect
 export type Artifact     = typeof schema.artifacts.$inferSelect
 export type SystemPrompt = typeof schema.systemPrompts.$inferSelect
+export type TaskPrompt   = typeof schema.taskPrompts.$inferSelect
 export type TaskStatus   = 'scheduled' | 'pending' | 'running' | 'done' | 'failed' | 'cancelled'
 export type TaskSchedule = 'once' | 'hourly' | 'daily' | 'weekly' | 'monthly'
 
@@ -166,6 +167,19 @@ export function migrate(): void {
       is_builtin INTEGER NOT NULL DEFAULT 0,
       created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
     );
+
+    CREATE TABLE IF NOT EXISTS task_prompts (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      origin_id   INTEGER NOT NULL,
+      version     INTEGER NOT NULL,
+      title       TEXT    NOT NULL DEFAULT '',
+      content     TEXT    NOT NULL,
+      cwd         TEXT    NOT NULL DEFAULT '',
+      model       TEXT    NOT NULL DEFAULT 'claude-sonnet-4-6',
+      provider_id INTEGER,
+      schedule    TEXT    NOT NULL DEFAULT 'once',
+      created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
   `)
 
   // Seed settings defaults
@@ -183,6 +197,14 @@ export function migrate(): void {
   if (cols.length && !cols.includes('next_run_at'))    client.exec('ALTER TABLE tasks ADD COLUMN next_run_at TEXT')
   if (cols.length && !cols.includes('workspace_path')) client.exec('ALTER TABLE tasks ADD COLUMN workspace_path TEXT')
   if (cols.length && !cols.includes('origin_id'))     client.exec('ALTER TABLE tasks ADD COLUMN origin_id INTEGER')
+  if (cols.length && !cols.includes('prompt_id'))     client.exec('ALTER TABLE tasks ADD COLUMN prompt_id INTEGER')
+
+  const taskCols = (client.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).map(c => c.name)
+  if (!taskCols.includes('webhook_pre_url'))    client.exec('ALTER TABLE tasks ADD COLUMN webhook_pre_url TEXT')
+  if (!taskCols.includes('webhook_post_url'))   client.exec('ALTER TABLE tasks ADD COLUMN webhook_post_url TEXT')
+  if (!taskCols.includes('webhook_timeout_ms')) client.exec('ALTER TABLE tasks ADD COLUMN webhook_timeout_ms INTEGER NOT NULL DEFAULT 10000')
+  if (!taskCols.includes('webhook_retry'))      client.exec('ALTER TABLE tasks ADD COLUMN webhook_retry INTEGER NOT NULL DEFAULT 2')
+  if (!taskCols.includes('webhook_ignore_ssl')) client.exec('ALTER TABLE tasks ADD COLUMN webhook_ignore_ssl INTEGER NOT NULL DEFAULT 0')
 
   // Seed default provider
   const count = db.select({ n: sql<number>`count(*)` }).from(schema.providers).get()!.n
@@ -328,6 +350,14 @@ function computeNextRun(schedule: TaskSchedule): string {
 export function addTask(
   description: string, cwd = '', model = DEFAULT_MODEL,
   providerId?: number | null, schedule: TaskSchedule = 'once',
+  opts?: {
+    promptId?: number
+    webhookPreUrl?: string | null
+    webhookPostUrl?: string | null
+    webhookTimeoutMs?: number
+    webhookRetry?: number
+    webhookIgnoreSsl?: number
+  },
 ): Task {
   const task = db.insert(schema.tasks).values({
     description,
@@ -335,6 +365,12 @@ export function addTask(
     model: model || DEFAULT_MODEL,
     provider_id: providerId ?? null,
     schedule,
+    prompt_id: opts?.promptId ?? null,
+    webhook_pre_url:    opts?.webhookPreUrl    ?? null,
+    webhook_post_url:   opts?.webhookPostUrl   ?? null,
+    webhook_timeout_ms: opts?.webhookTimeoutMs ?? 10000,
+    webhook_retry:      opts?.webhookRetry     ?? 2,
+    webhook_ignore_ssl: opts?.webhookIgnoreSsl ?? 0,
   }).returning().get()!
   // For recurring tasks, set origin_id to self on first creation
   if (schedule !== 'once') {
@@ -347,15 +383,45 @@ export function addTask(
 export function createNextRun(task: Task): Task | null {
   if (!task.schedule || task.schedule === 'once') return null
   const originId = task.origin_id ?? task.id
+
+  // If task is linked to a prompt, use the latest version of that prompt
+  let description = task.description
+  let cwd         = task.cwd
+  let model       = task.model
+  let provider_id = task.provider_id
+  let schedule    = task.schedule
+  let prompt_id: number | null = task.prompt_id ?? null
+
+  if (task.prompt_id) {
+    const prompt = getTaskPrompt(task.prompt_id)
+    if (prompt) {
+      const latest = getLatestTaskPrompt(prompt.origin_id)
+      if (latest) {
+        description = latest.content
+        cwd         = latest.cwd
+        model       = latest.model
+        provider_id = latest.provider_id ?? null
+        schedule    = latest.schedule as TaskSchedule
+        prompt_id   = latest.id
+      }
+    }
+  }
+
   return db.insert(schema.tasks).values({
     origin_id:   originId,
-    description: task.description,
-    cwd:         task.cwd,
-    model:       task.model,
-    provider_id: task.provider_id,
-    schedule:    task.schedule,
+    description,
+    cwd,
+    model,
+    provider_id,
+    schedule,
     status:      'scheduled',
-    next_run_at: computeNextRun(task.schedule as TaskSchedule),
+    next_run_at: computeNextRun(schedule as TaskSchedule),
+    prompt_id,
+    webhook_pre_url:    task.webhook_pre_url    ?? null,
+    webhook_post_url:   task.webhook_post_url   ?? null,
+    webhook_timeout_ms: task.webhook_timeout_ms ?? 10000,
+    webhook_retry:      task.webhook_retry      ?? 2,
+    webhook_ignore_ssl: task.webhook_ignore_ssl ?? 0,
   }).returning().get()!
 }
 
@@ -570,6 +636,70 @@ export function deleteSystemPromptVersion(id: number): boolean {
   if (!sp || sp.is_builtin) return false
   db.delete(schema.systemPrompts).where(eq(schema.systemPrompts.id, id)).run()
   return true
+}
+
+// ── Task Prompts repository ────────────────────────────────────────────────────
+
+export function createTaskPrompt(
+  content: string,
+  opts?: { title?: string; cwd?: string; model?: string; providerId?: number | null; schedule?: TaskSchedule },
+): TaskPrompt {
+  // Insert with placeholder origin_id=0, then update to self.id
+  const row = db.insert(schema.taskPrompts).values({
+    origin_id:   0,
+    version:     1,
+    title:       opts?.title ?? '',
+    content,
+    cwd:         opts?.cwd ?? '',
+    model:       opts?.model ?? DEFAULT_MODEL,
+    provider_id: opts?.providerId ?? null,
+    schedule:    opts?.schedule ?? 'once',
+  }).returning().get()!
+  db.update(schema.taskPrompts).set({ origin_id: row.id }).where(eq(schema.taskPrompts.id, row.id)).run()
+  return { ...row, origin_id: row.id }
+}
+
+export function saveTaskPromptVersion(
+  originId: number,
+  content: string,
+  opts?: { title?: string; cwd?: string; model?: string; providerId?: number | null; schedule?: TaskSchedule },
+): TaskPrompt {
+  const maxRow = db.select({ v: sql<number>`max(version)` })
+    .from(schema.taskPrompts)
+    .where(eq(schema.taskPrompts.origin_id, originId))
+    .get()
+  const nextVersion = (maxRow?.v ?? 0) + 1
+  return db.insert(schema.taskPrompts).values({
+    origin_id:   originId,
+    version:     nextVersion,
+    title:       opts?.title ?? '',
+    content,
+    cwd:         opts?.cwd ?? '',
+    model:       opts?.model ?? DEFAULT_MODEL,
+    provider_id: opts?.providerId ?? null,
+    schedule:    opts?.schedule ?? 'once',
+  }).returning().get()!
+}
+
+export function getTaskPromptVersions(originId: number): TaskPrompt[] {
+  return db.select().from(schema.taskPrompts)
+    .where(eq(schema.taskPrompts.origin_id, originId))
+    .orderBy(desc(schema.taskPrompts.version))
+    .all()
+}
+
+export function getLatestTaskPrompt(originId: number): TaskPrompt | null {
+  return db.select().from(schema.taskPrompts)
+    .where(eq(schema.taskPrompts.origin_id, originId))
+    .orderBy(desc(schema.taskPrompts.version))
+    .limit(1)
+    .get() ?? null
+}
+
+export function getTaskPrompt(id: number): TaskPrompt | null {
+  return db.select().from(schema.taskPrompts)
+    .where(eq(schema.taskPrompts.id, id))
+    .get() ?? null
 }
 
 export function queueStats(): { scheduled: number; pending: number; running: number; done: number; failed: number; total: number } {

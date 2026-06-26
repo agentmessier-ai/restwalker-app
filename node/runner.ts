@@ -4,12 +4,45 @@ import { spawn } from 'child_process'
 import { join } from 'path'
 import { homedir } from 'os'
 import { mkdirSync, existsSync } from 'fs'
+import https from 'https'
 import * as db from './db.js'
 import * as scheduler from './scheduler.js'
 import { findSessionJsonl, analyzeSession } from './session.js'
 
 let _log: { info: (s: string) => void; warn: (s: string) => void } = { info: console.log, warn: console.warn }
 export function setLogger(l: typeof _log) { _log = l }
+
+async function callWebhook(
+  url: string,
+  payload: Record<string, unknown>,
+  opts: { timeoutMs: number; retries: number; ignoreSsl: boolean }
+): Promise<void> {
+  const agent = opts.ignoreSsl ? new https.Agent({ rejectUnauthorized: false }) : undefined
+  let lastErr: Error | null = null
+  for (let attempt = 0; attempt <= opts.retries; attempt++) {
+    try {
+      const ctrl = new AbortController()
+      const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs)
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: ctrl.signal,
+        // @ts-ignore — Node fetch accepts agent
+        agent,
+      })
+      clearTimeout(timer)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      return
+    } catch (e) {
+      lastErr = e as Error
+      if (attempt < opts.retries) {
+        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)))
+      }
+    }
+  }
+  throw lastErr!
+}
 
 // Loaded from DB at task-run time so user edits take effect immediately
 
@@ -66,6 +99,21 @@ async function processTask(input: QueuePayload): Promise<void> {
   if (!task || task.status === 'cancelled') return
 
   _log.info(`[queue] starting task #${task.id}: ${task.description.slice(0, 80)}`)
+
+  if (task.webhook_pre_url) {
+    try {
+      await callWebhook(task.webhook_pre_url, { event: 'pre', task_id: task.id, description: task.description }, {
+        timeoutMs: task.webhook_timeout_ms ?? 10000,
+        retries: task.webhook_retry ?? 2,
+        ignoreSsl: (task.webhook_ignore_ssl ?? 0) === 1,
+      })
+      _log.info(`[queue] pre-webhook ok for task #${task.id}`)
+    } catch (e) {
+      _log.warn(`[queue] pre-webhook failed for task #${task.id}: ${(e as Error).message}`)
+      // Don't abort task — log and continue
+    }
+  }
+
   db.setTaskRunning(task.id)
 
   const startedAt = Date.now()
@@ -98,19 +146,42 @@ async function processTask(input: QueuePayload): Promise<void> {
     proc.stdout.on('data', (d: Buffer) => stdout.push(d.toString()))
     proc.stderr.on('data', (d: Buffer) => stderr.push(d.toString()))
 
-    proc.on('close', (code) => {
+    proc.on('close', async (code) => {
       const result = stdout.join('').trim() || stderr.join('').trim()
       _log.info(`[queue] task #${task.id} exited code ${code}`)
 
+      let toolCalls = 0
+      let tokensUsed = 0
+
       if (code !== 0) {
         db.setTaskFailed(task.id, `exit ${code}: ${result.slice(0, 500)}`)
+
+        if (task.webhook_post_url) {
+          try {
+            await callWebhook(task.webhook_post_url, {
+              event: 'post',
+              task_id: task.id,
+              status: 'failed',
+              tokens_used: tokensUsed,
+              tool_calls: toolCalls,
+              workspace_path: workspacePath,
+              result: result.slice(0, 500),
+            }, {
+              timeoutMs: task.webhook_timeout_ms ?? 10000,
+              retries: task.webhook_retry ?? 2,
+              ignoreSsl: (task.webhook_ignore_ssl ?? 0) === 1,
+            })
+            _log.info(`[queue] post-webhook ok for task #${task.id}`)
+          } catch (e) {
+            _log.warn(`[queue] post-webhook failed for task #${task.id}: ${(e as Error).message}`)
+          }
+        }
+
         reject(new Error(`exit ${code}`))
         return
       }
 
       const sessionPath = findSessionJsonl(cwd, startedAt)
-      let toolCalls = 0
-      let tokensUsed = 0
       let sessionId: string | null = null
 
       let artifactDecls: { path: string; description: string }[] = []
@@ -142,6 +213,27 @@ async function processTask(input: QueuePayload): Promise<void> {
           _log.info(`[queue] task #${task.id} saved ${saved.length} artifact(s)`)
         } catch (e) {
           _log.warn('[queue] artifact save error: ' + (e as Error).message)
+        }
+      }
+
+      if (task.webhook_post_url) {
+        try {
+          await callWebhook(task.webhook_post_url, {
+            event: 'post',
+            task_id: task.id,
+            status: 'done',
+            tokens_used: tokensUsed,
+            tool_calls: toolCalls,
+            workspace_path: workspacePath,
+            result: result.slice(0, 500),
+          }, {
+            timeoutMs: task.webhook_timeout_ms ?? 10000,
+            retries: task.webhook_retry ?? 2,
+            ignoreSsl: (task.webhook_ignore_ssl ?? 0) === 1,
+          })
+          _log.info(`[queue] post-webhook ok for task #${task.id}`)
+        } catch (e) {
+          _log.warn(`[queue] post-webhook failed for task #${task.id}: ${(e as Error).message}`)
         }
       }
 

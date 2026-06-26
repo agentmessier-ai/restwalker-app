@@ -99,6 +99,11 @@ const S = {
       started_at:   { type: 'string', nullable: true },
       finished_at:  { type: 'string', nullable: true },
       prompt_id:    { type: 'integer', nullable: true },
+      webhook_pre_url:    { type: 'string', nullable: true },
+      webhook_post_url:   { type: 'string', nullable: true },
+      webhook_timeout_ms: { type: 'integer' },
+      webhook_retry:      { type: 'integer' },
+      webhook_ignore_ssl: { type: 'integer' },
     },
   },
   ok: {
@@ -626,11 +631,16 @@ app.post('/queue', {
       type: 'object',
       required: ['description'],
       properties: {
-        description: { type: 'string' },
-        cwd:         { type: 'string' },
-        model:       { type: 'string' },
-        provider_id: { type: 'integer' },
-        schedule:    { type: 'string', enum: ['once','hourly','daily','weekly','monthly'], default: 'once' },
+        description:      { type: 'string' },
+        cwd:              { type: 'string' },
+        model:            { type: 'string' },
+        provider_id:      { type: 'integer' },
+        schedule:         { type: 'string', enum: ['once','hourly','daily','weekly','monthly'], default: 'once' },
+        webhook_pre_url:  { type: 'string' },
+        webhook_post_url: { type: 'string' },
+        webhook_timeout_ms: { type: 'integer', default: 10000 },
+        webhook_retry:    { type: 'integer', default: 2 },
+        webhook_ignore_ssl: { type: 'integer', default: 0 },
       },
     },
     response: {
@@ -639,10 +649,21 @@ app.post('/queue', {
     },
   },
 }, async (req, reply) => {
-  const { description, cwd, model, provider_id, schedule } =
-    req.body as { description?: string; cwd?: string; model?: string; provider_id?: number; schedule?: db.TaskSchedule }
+  const { description, cwd, model, provider_id, schedule,
+          webhook_pre_url, webhook_post_url, webhook_timeout_ms, webhook_retry, webhook_ignore_ssl } =
+    req.body as {
+      description?: string; cwd?: string; model?: string; provider_id?: number; schedule?: db.TaskSchedule
+      webhook_pre_url?: string; webhook_post_url?: string
+      webhook_timeout_ms?: number; webhook_retry?: number; webhook_ignore_ssl?: number
+    }
   if (!description?.trim()) return reply.code(400).send({ error: 'description required' })
-  const task = db.addTask(description.trim(), cwd?.trim(), model?.trim(), provider_id, schedule || 'once')
+  const task = db.addTask(description.trim(), cwd?.trim(), model?.trim(), provider_id, schedule || 'once', {
+    webhookPreUrl:    webhook_pre_url    ?? null,
+    webhookPostUrl:   webhook_post_url   ?? null,
+    webhookTimeoutMs: webhook_timeout_ms ?? 10000,
+    webhookRetry:     webhook_retry      ?? 2,
+    webhookIgnoreSsl: webhook_ignore_ssl ?? 0,
+  })
   enqueueTask(task)
   app.log.info(`[queue] added #${task.id} (${task.schedule}): ${description.slice(0, 80)}`)
   return { ok: true, task }

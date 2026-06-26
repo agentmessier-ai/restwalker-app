@@ -64,4 +64,23 @@ export const tasks = sqliteTable('tasks', {
   created_at:    text('created_at').notNull().default(NOW),
   started_at:    text('started_at'),
   finished_at:   text('finished_at'),
+  prompt_id:     integer('prompt_id'),
+  webhook_pre_url:    text('webhook_pre_url'),
+  webhook_post_url:   text('webhook_post_url'),
+  webhook_timeout_ms: integer('webhook_timeout_ms').notNull().default(10000),
+  webhook_retry:      integer('webhook_retry').notNull().default(2),
+  webhook_ignore_ssl: integer('webhook_ignore_ssl').notNull().default(0),
+})
+
+export const taskPrompts = sqliteTable('task_prompts', {
+  id:          integer('id').primaryKey({ autoIncrement: true }),
+  origin_id:   integer('origin_id').notNull(),
+  version:     integer('version').notNull(),
+  title:       text('title').notNull().default(''),
+  content:     text('content').notNull(),
+  cwd:         text('cwd').notNull().default(''),
+  model:       text('model').notNull().default('claude-sonnet-4-6'),
+  provider_id: integer('provider_id'),
+  schedule:    text('schedule').notNull().default('once'),
+  created_at:  text('created_at').notNull().default(NOW),
 })
