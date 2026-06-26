@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { plugins } from '../plugins.js'
+import { loadOpenClawPlugin, persistOpenClawEntry } from '../openclaw-adapter.js'
 
 export default async function pluginRoutes(app: FastifyInstance) {
   // GET /plugins — list all registered plugins
@@ -16,12 +17,13 @@ export default async function pluginRoutes(app: FastifyInstance) {
               items: {
                 type: 'object',
                 properties: {
-                  name:    { type: 'string' },
-                  enabled: { type: 'boolean' },
-                  builtin: { type: 'boolean' },
-                  hooks:   { type: 'array', items: { type: 'string' } },
-                  error:   { type: ['string', 'null'] },
-                  path:    { type: ['string', 'null'] },
+                  name:     { type: 'string' },
+                  enabled:  { type: 'boolean' },
+                  builtin:  { type: 'boolean' },
+                  openclaw: { type: 'boolean' },
+                  hooks:    { type: 'array', items: { type: 'string' } },
+                  error:    { type: ['string', 'null'] },
+                  path:     { type: ['string', 'null'] },
                 },
               },
             },
@@ -73,6 +75,29 @@ export default async function pluginRoutes(app: FastifyInstance) {
     try {
       const entry = await plugins.loadExternal(path)
       return { ok: true, plugin: entry }
+    } catch (e) {
+      return reply.code(400).send({ error: (e as Error).message })
+    }
+  })
+
+  // POST /plugins/install-openclaw — load an OpenClaw-compatible plugin
+  app.post('/plugins/install-openclaw', {
+    schema: {
+      tags: ['plugins'],
+      summary: 'Install an OpenClaw-compatible plugin from a package name or local path',
+      body: {
+        type: 'object',
+        required: ['path'],
+        properties: { path: { type: 'string' } },
+      },
+    },
+  }, async (req, reply) => {
+    const { path } = req.body as { path: string }
+    try {
+      const { plugin, manifest, path: resolvedPath } = await loadOpenClawPlugin(path)
+      const entry = plugins.register(plugin, { builtin: false, path: resolvedPath, openclaw: true })
+      persistOpenClawEntry(plugin.name, resolvedPath)
+      return { ok: true, plugin: entry, manifest }
     } catch (e) {
       return reply.code(400).send({ error: (e as Error).message })
     }

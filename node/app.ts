@@ -17,6 +17,7 @@ import { logTaskPlugin } from './plugins/log-task.js'
 import { gbrainPlugin } from './plugins/gbrain-plugin.js'
 import { webhookPlugin, setLogger as setWebhookLogger } from './plugins/webhook.js'
 import { setLogger as setGbrainLogger } from './gbrain.js'
+import { setLogger as setOpenClawLogger, reloadPersistedOpenClaw } from './openclaw-adapter.js'
 
 import healthRoutes       from './routes/health.js'
 import usageRoutes, { doSync } from './routes/usage.js'
@@ -137,7 +138,9 @@ setSchedulerLogger({ info: (s) => app.log.info(s), warn: (s) => app.log.warn(s) 
 plugins.setLogger({ info: (s) => app.log.info(s), warn: (s) => app.log.warn(s) })
 setGbrainLogger({ info: (s) => app.log.info(s), warn: (s) => app.log.warn(s) })
 setWebhookLogger({ info: (s) => app.log.info(s), warn: (s) => app.log.warn(s) })
+setOpenClawLogger({ info: (s) => app.log.info(s), warn: (s) => app.log.warn(s) })
 plugins.register(webhookPlugin, { builtin: true })
 plugins.register(logTaskPlugin, { builtin: true })
 plugins.register(gbrainPlugin, { builtin: true })
 await plugins.loadPersistedExternal()
+await reloadPersistedOpenClaw(plugins)

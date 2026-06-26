@@ -28,12 +28,13 @@ export interface Plugin {
 }
 
 export interface PluginEntry {
-  name:    string
-  enabled: boolean
-  builtin: boolean
-  hooks:   HookName[]
-  error:   string | null
-  path:    string | null
+  name:     string
+  enabled:  boolean
+  builtin:  boolean
+  openclaw: boolean
+  hooks:    HookName[]
+  error:    string | null
+  path:     string | null
 }
 
 // ── Persistence ────────────────────────────────────────────────────────────────
@@ -69,19 +70,20 @@ class PluginManager {
 
   setLogger(l: typeof this._log) { this._log = l }
 
-  register(plugin: Plugin, opts: { builtin?: boolean; path?: string | null } = {}): PluginEntry {
+  register(plugin: Plugin, opts: { builtin?: boolean; path?: string | null; openclaw?: boolean } = {}): PluginEntry {
     const persisted = loadPersisted()
     const enabled   = !persisted.disabled.includes(plugin.name)
     const hooks: HookName[] = []
     const handlers  = new Map<HookName, HookHandler<any>[]>()
 
     const entry: PluginEntry = {
-      name:    plugin.name,
+      name:     plugin.name,
       enabled,
-      builtin: opts.builtin ?? false,
+      builtin:  opts.builtin ?? false,
+      openclaw: opts.openclaw ?? false,
       hooks,
-      error:   null,
-      path:    opts.path ?? null,
+      error:    null,
+      path:     opts.path ?? null,
     }
 
     const ctx: PluginContext = {
