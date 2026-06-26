@@ -127,8 +127,10 @@ copy and schedule:
 |---|---|---|
 | [**Dream Journal**](examples/tasks/dream-journal.md) | `daily` | Reflects on the last 24h of Claude Code conversations, distills reusable **skills**, scans the web + GitHub trending for better practices, and writes one markdown report as an artifact. The canonical "good recurring task": reads local context, uses tools, produces a single artifact, and only runs during your idle window. |
 
-These are *not* installed automatically — they'd spend tokens nightly without your say-so.
-Copy the prompt, set the schedule, and queue it when you want it.
+The **Dream Journal** is **seeded into the queue on a fresh install** as a scheduled daily
+task — so a new install has a working recurring task out of the box. It runs on idle budget
+(the gate controls timing) and you can delete it anytime. The other examples are copy-paste
+reference: take the prompt, set the schedule, and queue it when you want it.
 
 ## Task workspace
 

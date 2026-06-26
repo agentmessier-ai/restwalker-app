@@ -10,6 +10,27 @@ const DEFAULT_CLAUDE_ARGS = JSON.stringify([
   '--model', '{{model}}', '{{task}}',
 ])
 
+// Flagship example task, seeded once on a fresh install so a new user has a working
+// recurring task that showcases restwalker (runs nightly on idle budget; deletable).
+// Mirrors examples/tasks/dream-journal.md.
+const DREAM_JOURNAL_PROMPT = `You are restwalker's nightly "Dream Journal". Reflect on the last 24 hours of work and produce ONE markdown report. Be concise and concrete — this is a journal, not an essay. Work entirely from local files and the web; do not modify the user's projects.
+
+PART 1 — Distill skills from today's conversations
+- Find Claude Code session transcripts modified in the last 24 hours under ~/.claude/projects/ (each line of a .jsonl is one JSON message). Also skim ~/.claude/history.jsonl for recent commands.
+- Read enough to spot recurring patterns: a workflow you repeated, a problem you solved more than once, a sequence of steps worth turning into a reusable SKILL.
+- For each candidate skill (the best 1–3, not everything), capture: name (kebab-case), when to use it, the concrete steps, why it helps.
+- If there were no meaningful conversations, say so plainly and keep the report short.
+
+PART 2 — Best-practice + trending scan (top 1–3 candidates only)
+- For each top candidate, use web search to check whether there is a more established, best-practice way to do the same thing. Note what is better and link the source.
+- Check GitHub trending for the last ~30 days by fetching https://github.com/trending?since=monthly . Pick the few repos most relevant to how you work, read their READMEs, and compare their approach to yours. Note anything concrete you could adopt.
+
+OUTPUT
+- Write a single markdown report to ~/.restwalker/dreams/dream-<YYYY-MM-DD>.md (create the dreams/ directory if needed; use today's date from \`date +%F\`).
+- Structure it: a title "# Dream Journal — <date>", then sections "## Distilled skills", "## Best-practice notes", "## Trending & comparisons", "## Action items".
+- Then declare the report as an artifact on its own line: ARTIFACT: {"path": "<absolute path>", "description": "Nightly dream journal — distilled skills and best-practice scan"}
+- Do NOT auto-install skills or edit ~/.claude/skills. Only recommend; the human decides.`
+
 export function migrate(): void {
   client.exec(`
     CREATE TABLE IF NOT EXISTS usage_snapshots (
@@ -140,7 +161,8 @@ export function migrate(): void {
     client.exec("DELETE FROM settings WHERE key='TASK_TIMEOUT_MS'")
   }
 
-  // Seed default provider
+  // Seed default provider + the flagship example task (fresh installs only — gated
+  // on "no provider yet" so existing DBs never get a duplicate Dream Journal).
   const count = db.select({ n: sql<number>`count(*)` }).from(schema.providers).get()!.n
   if (!count) {
     db.insert(schema.providers).values({
@@ -150,6 +172,18 @@ export function migrate(): void {
       loop_type: 'claude_print',
       is_default: 1,
     }).run()
+
+    // Seed the Dream Journal as a daily task, due at the next idle window. A recurring
+    // chain points origin_id at itself; status 'scheduled' + next_run_at <= now makes
+    // the scheduler pick it up when the gate is open.
+    const dj = db.insert(schema.tasks).values({
+      description: DREAM_JOURNAL_PROMPT,
+      schedule:    'daily',
+      status:      'scheduled',
+      next_run_at: new Date().toISOString(),
+      timeout_s:   1800,
+    }).returning().get()!
+    db.update(schema.tasks).set({ origin_id: dj.id }).where(eq(schema.tasks.id, dj.id)).run()
   }
 
   // Seed builtin system prompt (once); keep its content current on upgrades.
