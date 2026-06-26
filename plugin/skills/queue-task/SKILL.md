@@ -1,7 +1,7 @@
 ---
 name: queue-task
 description: Defer work to RestWalker to run later during idle time. Use when the user finds something important-but-not-urgent and wants it done off-hours — e.g. "create a restwalker task to do X tonight", "queue this for later", "have restwalker run X when I'm idle", "do this overnight", "add a background task", "remind restwalker to refactor Y". Captures the work into a self-contained prompt and calls the restwalker queue_add MCP tool.
-allowed-tools: mcp__restwalker__queue_add mcp__restwalker__status mcp__restwalker__list_projects
+allowed-tools: mcp__plugin_restwalker_restwalker__queue_add mcp__plugin_restwalker_restwalker__status mcp__plugin_restwalker_restwalker__list_projects mcp__restwalker__queue_add mcp__restwalker__status mcp__restwalker__list_projects
 ---
 
 # Queue a RestWalker task

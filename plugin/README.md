@@ -7,14 +7,21 @@ writes a self-contained task and queues it via the RestWalker MCP server.
 
 ## Requires
 
-RestWalker installed and its MCP server registered (the installer does this):
+The plugin **bundles the RestWalker MCP server** (it declares `restwalker mcp` in
+`mcpServers`), so installing the plugin wires up the tools automatically — but it needs the
+`restwalker` CLI on your PATH and the daemon set up:
 
 ```bash
-npx @agentmessier/restwalker install
+npm install -g @agentmessier/restwalker   # puts `restwalker` on PATH
+restwalker install                         # daemon (LaunchAgent) + node deps
 ```
 
-The skills call the `restwalker` MCP tools. If RestWalker isn't connected, the skills will
-tell you to install it.
+After that the plugin's MCP server (`restwalker mcp`) starts on its own when the plugin is
+enabled. If RestWalker isn't connected, the skills will tell you.
+
+> Already registered the MCP standalone (via `claude mcp add`, which `restwalker install`
+> also offers)? That works too — the skills accept both the plugin-bundled and standalone
+> tool names. Pick one to avoid duplicate tools in the menu.
 
 ## Install the plugin
 

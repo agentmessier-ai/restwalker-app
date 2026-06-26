@@ -1,7 +1,7 @@
 ---
 name: task-result
 description: Review what a RestWalker task produced. Use when the user asks "what did my restwalker task do", "show the result of task N", "did last night's task finish", "show the dream journal", "what artifacts did it create", or wants a completed task's output, files, or transcript.
-allowed-tools: mcp__restwalker__queue_get mcp__restwalker__queue_artifacts mcp__restwalker__queue_session mcp__restwalker__queue_list
+allowed-tools: mcp__plugin_restwalker_restwalker__queue_get mcp__plugin_restwalker_restwalker__queue_artifacts mcp__plugin_restwalker_restwalker__queue_session mcp__plugin_restwalker_restwalker__queue_list mcp__restwalker__queue_get mcp__restwalker__queue_artifacts mcp__restwalker__queue_session mcp__restwalker__queue_list
 ---
 
 # Review a RestWalker task result

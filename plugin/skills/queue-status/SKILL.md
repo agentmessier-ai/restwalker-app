@@ -1,7 +1,7 @@
 ---
 name: queue-status
 description: Check the RestWalker queue, usage budget, and schedule. Use when the user asks "what's in my restwalker queue", "check restwalker", "queue status", "what tasks do I have", "how much budget / usage is left", "when's the next idle window", or wants to see pending / running / done / failed tasks.
-allowed-tools: mcp__restwalker__status mcp__restwalker__queue_stats mcp__restwalker__queue_list mcp__restwalker__can_run
+allowed-tools: mcp__plugin_restwalker_restwalker__status mcp__plugin_restwalker_restwalker__queue_stats mcp__plugin_restwalker_restwalker__queue_list mcp__plugin_restwalker_restwalker__can_run mcp__restwalker__status mcp__restwalker__queue_stats mcp__restwalker__queue_list mcp__restwalker__can_run
 ---
 
 # RestWalker status

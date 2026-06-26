@@ -7,5 +7,11 @@
   "homepage": "https://github.com/agentmessier-ai/restwalker",
   "repository": "https://github.com/agentmessier-ai/restwalker",
   "license": "MIT",
-  "keywords": ["restwalker", "task-queue", "idle", "background", "scheduler", "claude"]
+  "keywords": ["restwalker", "task-queue", "idle", "background", "scheduler", "claude"],
+  "mcpServers": {
+    "restwalker": {
+      "command": "restwalker",
+      "args": ["mcp"]
+    }
+  }
 }
