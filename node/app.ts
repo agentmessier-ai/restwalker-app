@@ -7,6 +7,7 @@ import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { homedir } from 'os'
 import { createWriteStream, readFileSync, existsSync } from 'fs'
+import { spawn } from 'child_process'
 
 import * as db from './db.js'
 import * as scheduler from './scheduler.js'
@@ -804,6 +805,25 @@ app.get('/artifacts/:id/content', {
   const content = readFileSync(artifact.path, 'utf8')
   reply.header('Content-Type', artifact.mime_type + '; charset=utf-8')
   return reply.send(content)
+})
+
+// ── Open in Finder ────────────────────────────────────────────────────────────
+
+app.post('/open-folder', {
+  schema: {
+    tags: ['utility'],
+    summary: 'Open a folder in Finder (macOS only)',
+    body: {
+      type: 'object',
+      properties: { path: { type: 'string', nullable: true } },
+    },
+    response: { 200: S.ok },
+  },
+}, async (req) => {
+  const { path: folderPath } = (req.body as { path?: string | null })
+  const target = folderPath ?? db.WORKSPACE_DIR
+  spawn('open', [target], { detached: true, stdio: 'ignore' }).unref()
+  return { ok: true }
 })
 
 // ── System Prompt ─────────────────────────────────────────────────────────────

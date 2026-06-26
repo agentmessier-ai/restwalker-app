@@ -241,11 +241,14 @@
 <main id="queue-panel" style="display:none">
   <div class="section" style="margin-bottom:16px">
     <h2>Add task to queue</h2>
-    <div style="background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.2);border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:12px;line-height:1.6;color:#a5b4fc">
-      <strong style="color:#c7d2fe">Tip:</strong> Best added from Claude Code via MCP — just ask Claude to queue a task for you while you sleep.<br>
-      <code style="font-size:11px;color:#818cf8;background:rgba(0,0,0,.3);padding:1px 5px;border-radius:3px">queue_add</code> tool is available in Claude Code once the MCP server is registered.
+    <div style="background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.2);border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:12px;line-height:1.6;color:#a5b4fc;display:flex;justify-content:space-between;align-items:center;gap:12px">
+      <div>
+        <strong style="color:#c7d2fe">Tip:</strong> Best added from Claude Code via MCP — just ask Claude to queue a task for you while you sleep.<br>
+        <code style="font-size:11px;color:#818cf8;background:rgba(0,0,0,.3);padding:1px 5px;border-radius:3px">queue_add</code> tool is available in Claude Code once the MCP server is registered.
+      </div>
+      <button onclick="openWorkspaceFolder()" style="flex-shrink:0;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.3);color:#a5b4fc;border-radius:5px;padding:5px 10px;font-size:11px;cursor:pointer;font-family:inherit;white-space:nowrap" title="Open ~/.restwalker/workspace in Finder">📁 Workspace</button>
     </div>
-    <textarea id="q-desc" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-family:inherit;font-size:13px;resize:vertical;min-height:64px;box-sizing:border-box" placeholder="What should Claude do while you sleep?&#10;e.g. Add integration tests for the ledger service in ~/dev/agentnet"></textarea>
+    <textarea id="q-desc" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-family:inherit;font-size:13px;resize:vertical;min-height:64px;box-sizing:border-box" placeholder="What should Claude do while you sleep?&#10;e.g. Refactor the auth module in ~/dev/myapp and write a summary report"></textarea>
     <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
       <span style="color:var(--muted);white-space:nowrap;font-size:12px">cwd:</span>
       <select id="q-cwd-select" onchange="qCwdSelectChange()" style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-family:inherit;font-size:13px;cursor:pointer">
@@ -1210,8 +1213,9 @@ function renderTaskDetail(t, hasSession) {
 
   // Workspace path
   if (t.workspace_path) {
-    html += `<div style="font-size:11px;color:var(--muted);margin-bottom:8px">
+    html += `<div style="font-size:11px;color:var(--muted);margin-bottom:8px;display:flex;align-items:center;gap:6px">
       📁 Workspace: <code style="color:var(--text)">${escHtml(t.workspace_path)}</code>
+      <button onclick="openFolder('${escHtml(t.workspace_path)}')" style="background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.25);color:#a5b4fc;border-radius:4px;padding:1px 7px;font-size:10px;cursor:pointer;font-family:inherit">Open in Finder</button>
     </div>`
   }
 
@@ -1329,6 +1333,11 @@ async function openArtifactViewer(artifactId, filename, mimeType) {
 function closeArtifactViewer() {
   const panel = document.getElementById('artifact-panel')
   if (panel) panel.style.display = 'none'
+}
+
+async function openWorkspaceFolder() { await openFolder(null) }
+async function openFolder(path) {
+  await fetch('/open-folder', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ path }) }).catch(()=>{})
 }
 
 function renderSession(turns) {
