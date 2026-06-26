@@ -162,12 +162,14 @@ function localHour(date: Date, tz: string): number {
   }
 }
 
-export function isCodingWindow(now = new Date(), startH = 9, endH = 18, tz = 'America/Los_Angeles'): boolean {
+export function isCodingWindow(now = new Date(), startH = 0, endH = 0, tz = 'America/Los_Angeles'): boolean {
+  if (startH === endH) return false  // 0,0 = disabled
   const h = localHour(now, tz)
-  return h >= startH && h < endH
+  if (startH < endH) return h >= startH && h < endH
+  return h >= startH || h < endH    // wraps midnight e.g. 22–6
 }
 
-export function nextIdleInS(now = new Date(), startH = 9, endH = 18, tz = 'America/Los_Angeles'): number {
+export function nextIdleInS(now = new Date(), startH = 0, endH = 0, tz = 'America/Los_Angeles'): number {
   if (!isCodingWindow(now, startH, endH, tz)) return 0
   const h = localHour(now, tz)
   const m = now.getMinutes()
