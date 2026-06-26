@@ -278,30 +278,41 @@
       </select>
       <button onclick="queueAddTask()" style="background:var(--blue);color:#fff;border:none;border-radius:6px;padding:7px 14px;cursor:pointer;font-family:inherit;font-size:13px;white-space:nowrap">Add to queue</button>
     </div>
-    <div style="margin-top:8px">
-      <button onclick="qToggleAdvanced()" id="q-advanced-toggle" style="background:none;border:none;color:var(--muted);font-size:11px;cursor:pointer;font-family:inherit;padding:0;display:flex;align-items:center;gap:4px">▸ Advanced</button>
-      <div id="q-advanced" style="display:none;margin-top:10px;flex-direction:column;gap:8px">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+    <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
+      <button onclick="qToggleAdvanced()" id="q-advanced-toggle" style="background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;font-family:inherit;padding:0;display:flex;align-items:center;gap:5px;font-weight:500">▸ Webhooks &amp; advanced</button>
+      <div id="q-advanced" style="display:none;margin-top:12px;flex-direction:column;gap:12px">
+        <!-- Webhook hint -->
+        <div style="font-size:11px;color:var(--muted);background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;line-height:1.6">
+          Restwalker will POST JSON to these URLs before and after the task runs — useful for triggering notifications (Slack, Discord), updating external systems, or chaining workflows. Failures are logged and never abort the task.
+        </div>
+        <!-- Webhook URLs -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
           <div>
-            <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:4px">Pre-execution URL</div>
-            <input id="q-webhook-pre" placeholder="https://…" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:inherit;box-sizing:border-box">
+            <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:4px">Pre-execution webhook</div>
+            <input id="q-webhook-pre" placeholder="https://hooks.slack.com/…" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:inherit;box-sizing:border-box">
+            <div style="font-size:10px;color:var(--muted);margin-top:3px">Called before the agent starts · payload: <code style="font-family:var(--mono)">event, task_id, description</code></div>
           </div>
           <div>
-            <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:4px">Post-execution URL</div>
-            <input id="q-webhook-post" placeholder="https://…" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:inherit;box-sizing:border-box">
+            <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:4px">Post-execution webhook</div>
+            <input id="q-webhook-post" placeholder="https://hooks.slack.com/…" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:inherit;box-sizing:border-box">
+            <div style="font-size:10px;color:var(--muted);margin-top:3px">Called after done/failed · payload: <code style="font-family:var(--mono)">event, task_id, status, tokens_used, result</code></div>
           </div>
         </div>
-        <div style="display:flex;gap:12px;align-items:center">
+        <!-- Timeout / retry / SSL -->
+        <div style="display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap">
           <div>
-            <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:4px">Timeout (ms)</div>
-            <input id="q-webhook-timeout" type="number" value="10000" min="1000" max="60000" style="width:100px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:inherit">
+            <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:4px">Timeout</div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <input id="q-webhook-timeout" type="number" value="10000" min="1000" max="60000" style="width:90px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:inherit">
+              <span style="font-size:11px;color:var(--muted)">ms</span>
+            </div>
           </div>
           <div>
-            <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:4px">Retries</div>
-            <input id="q-webhook-retry" type="number" value="2" min="0" max="10" style="width:70px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:inherit">
+            <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:4px">Retries on failure</div>
+            <input id="q-webhook-retry" type="number" value="2" min="0" max="10" style="width:60px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:inherit">
           </div>
-          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text);cursor:pointer;margin-top:14px">
-            <input type="checkbox" id="q-webhook-ignore-ssl" style="accent-color:var(--blue)"> Ignore SSL errors
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer">
+            <input type="checkbox" id="q-webhook-ignore-ssl" style="accent-color:var(--blue)"> Ignore SSL certificate errors
           </label>
         </div>
       </div>
