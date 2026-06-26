@@ -730,7 +730,7 @@ function renderStatus(s) {
     wSub.textContent = `idle in ${m>=60?Math.floor(m/60)+'h '+m%60+'m':m+'m'}`;
   } else {
     wEl.textContent = 'IDLE'; wEl.style.color = 'var(--green)';
-    wSub.textContent = s.reason || '';
+    wSub.textContent = gatePlain(s);
   }
 
   // Stale badge
@@ -781,6 +781,21 @@ function renderStatus(s) {
     const abbr = tzAbbr(tz);
     document.getElementById('sched-group-title').textContent = `Schedule (${abbr})`;
   }
+}
+
+// Plain-English, setting-anchored one-liner for the gate state — replaces the
+// raw backend reason string (e.g. "weekly=68% ≥ 65% — reserving 35% for coding")
+// wherever it'd otherwise show. Mirrors scheduler.canRun precedence.
+function gatePlain(s) {
+  const t = s.thresholds || {}, u = s.usage || {};
+  const t5 = t.five_hour_pause_pct ?? 75, stop = t.weekly_hard_stop_pct ?? 90;
+  const reserve = t.weekly_reserve_pct ?? 35, ceiling = 100 - reserve;
+  const fiveH = Math.round(u.five_hour_pct ?? 0), weekly = Math.round(u.weekly_pct ?? 0);
+  if (s.ok)              return 'Ready — tasks run as queued';
+  if (fiveH >= t5)       return `Paused · 5-hour usage ${fiveH}% (limit ${t5}%)`;
+  if (weekly >= stop)    return `Stopped · weekly ${weekly}% (limit ${stop}%)`;
+  if (weekly >= ceiling) return `Paused · Weekly reserve ${reserve}% (weekly ${weekly}%)`;
+  return s.reason || '';
 }
 
 // ── Center nav explainer ──────────────────────────────────────────────────────
