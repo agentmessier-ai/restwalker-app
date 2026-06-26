@@ -80,14 +80,6 @@ Host and port are **boot-time** settings: a running server can't rebind its sock
 change only takes effect after the reload above (and if you changed the port, reopen the
 dashboard on the new one).
 
-## Uninstall
-
-```bash
-./uninstall.sh
-```
-
-Stops the service, removes the LaunchAgent, and optionally deletes `~/.restwalker/` (DB + logs).
-
 ## Dashboard
 
 `http://localhost:47290`
@@ -321,3 +313,11 @@ All data lives in `~/.restwalker/`:
 ```bash
 tail -f ~/.restwalker/restwalker.log
 ```
+
+## Uninstall
+
+```bash
+./uninstall.sh
+```
+
+Stops the service, removes the LaunchAgent, and optionally deletes `~/.restwalker/` (DB + logs).
