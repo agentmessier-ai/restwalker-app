@@ -249,9 +249,9 @@
       </div>
       <button onclick="openWorkspaceFolder()" style="flex-shrink:0;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.3);color:#a5b4fc;border-radius:5px;padding:5px 10px;font-size:11px;cursor:pointer;font-family:inherit;white-space:nowrap" title="Open ~/.restwalker/workspace in Finder">📁 Workspace</button>
     </div>
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
       <span style="font-size:11px;color:var(--muted)">Task prompt</span>
-      <button onclick="openSPModal()" style="background:none;border:none;color:var(--muted);font-size:11px;cursor:pointer;font-family:inherit;padding:0;display:flex;align-items:center;gap:4px" title="View or edit the system prompt injected into every task">📋 System prompt</button>
+      <button onclick="openSPModal()" style="background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.25);color:#a5b4fc;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:4px" title="View or edit the system prompt injected into every task">📋 System prompt</button>
     </div>
     <textarea id="q-desc" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-family:inherit;font-size:13px;resize:vertical;min-height:64px;box-sizing:border-box" placeholder="What should Claude do while you sleep?&#10;e.g. Refactor the auth module in ~/dev/myapp and write a summary report"></textarea>
     <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
