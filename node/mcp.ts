@@ -130,9 +130,10 @@ async function registerDerivedTools() {
       schedule:         'Recurrence — once runs immediately, others repeat',
       webhook_pre_url:  'URL to POST before the agent starts',
       webhook_post_url: 'URL to POST after the agent finishes (includes status, tokens, result)',
-      webhook_timeout_ms: 'Webhook HTTP timeout in ms (default 10000)',
+      webhook_timeout_s: 'Webhook HTTP timeout in seconds (default 10)',
       webhook_retry:    'Webhook retry attempts on failure (default 2)',
       webhook_ignore_ssl: 'Set 1 to skip TLS verification for self-signed certs',
+      timeout_s:        'Per-task agent timeout in seconds (default 600 = 10 min)',
     }),
     async (args) => text(await api('POST', '/queue', args)),
   )

@@ -58,8 +58,8 @@ const SqliteStore = require('better-queue-sqlite')
 const QUEUE_DB        = join(homedir(), '.restwalker', 'queue.db')
 const POLL_MS         = parseInt(process.env.QUEUE_POLL_MS    ?? '120000')
 // Read at task-run time from DB settings so changes take effect without restart
-function getTaskTimeoutMs(): number {
-  return parseInt(db.getSettings().TASK_TIMEOUT_MS ?? '600000')
+function getTaskTimeoutSec(): number {
+  return parseInt(db.getSettings().TASK_TIMEOUT_S ?? '600')
 }
 
 interface QueuePayload {
@@ -114,8 +114,9 @@ async function processTask(input: QueuePayload): Promise<void> {
   }
 
   const loopType = (provider.loop_type ?? 'claude_print') as LoopType
-  // per-task timeout overrides the global TASK_TIMEOUT_MS setting when set
-  const loop = createLoop(loopType, task.timeout_ms ?? getTaskTimeoutMs())
+  // per-task timeout (seconds) overrides the global TASK_TIMEOUT_S setting; the loop
+  // wants ms (Node setTimeout), so convert at this boundary
+  const loop = createLoop(loopType, (task.timeout_s ?? getTaskTimeoutSec()) * 1000)
 
   const loopCtx: AgentLoopContext = {
     task,

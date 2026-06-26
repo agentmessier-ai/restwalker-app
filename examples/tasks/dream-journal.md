@@ -12,8 +12,8 @@ daily during your idle window so it only spends tokens you weren't using anyway.
 - **Schedule:** `daily`
 - **Tools used:** Bash, WebSearch, WebFetch, Write
 - **Output:** `~/.restwalker/dreams/dream-YYYY-MM-DD.md`, declared as an artifact
-- **Timeout:** `1800000` (30 min) — web search + GitHub + reading a day of transcripts
-  blows past the default 10-minute task timeout, so this task sets its own `timeout_ms`
+- **Timeout:** `1800` seconds (30 min) — web search + GitHub + reading a day of transcripts
+  blows past the default 10-minute task timeout, so this task sets its own `timeout_s`
 
 ---
 
@@ -28,7 +28,7 @@ curl -s -X POST http://127.0.0.1:47290/queue \
 {
   "description": "<paste the PROMPT block below>",
   "schedule": "daily",
-  "timeout_ms": 1800000
+  "timeout_s": 1800
 }
 JSON
 ```

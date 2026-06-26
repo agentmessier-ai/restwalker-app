@@ -287,8 +287,8 @@
           <div>
             <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:4px">Task timeout</div>
             <div style="display:flex;align-items:center;gap:6px">
-              <input id="q-timeout-min" type="number" placeholder="default" min="1" max="180" style="width:90px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:inherit">
-              <span style="font-size:11px;color:var(--muted)">min — kill the agent if it runs longer. Prefilled from the system default; raise it for long research tasks, or clear to follow the global setting.</span>
+              <input id="q-timeout-sec" type="number" placeholder="default" min="1" max="10800" style="width:90px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:inherit">
+              <span style="font-size:11px;color:var(--muted)">seconds — kill the agent if it runs longer (e.g. 600 = 10 min). Prefilled from the system default; raise it for long research tasks, or clear to follow the global setting.</span>
             </div>
           </div>
         </div>
@@ -314,8 +314,8 @@
           <div>
             <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:4px">Webhook timeout</div>
             <div style="display:flex;align-items:center;gap:6px">
-              <input id="q-webhook-timeout" type="number" value="10000" min="1000" max="60000" style="width:90px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:inherit">
-              <span style="font-size:11px;color:var(--muted)">ms</span>
+              <input id="q-webhook-timeout" type="number" value="10" min="1" max="120" style="width:90px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:inherit">
+              <span style="font-size:11px;color:var(--muted)">s</span>
             </div>
           </div>
           <div>
@@ -489,11 +489,11 @@
       <div class="setting-row">
         <div>
           <div class="setting-label">Task spawn timeout</div>
-          <div class="setting-hint">Kill the agent process if it runs longer than this (SIGTERM → 5s → SIGKILL)</div>
+          <div class="setting-hint">Seconds before the agent process is killed if it runs longer (SIGTERM → 5s → SIGKILL). 600 = 10 min.</div>
         </div>
         <div class="slider-wrap">
-          <input type="range" min="1" max="120" id="s-TASK_TIMEOUT_MS" oninput="document.getElementById('v-TASK_TIMEOUT_MS').textContent=this.value+'m'" step="1">
-          <span class="slider-val" id="v-TASK_TIMEOUT_MS">10m</span>
+          <input type="range" min="60" max="3600" id="s-TASK_TIMEOUT_S" oninput="document.getElementById('v-TASK_TIMEOUT_S').textContent=this.value+'s'" step="30">
+          <span class="slider-val" id="v-TASK_TIMEOUT_S">600s</span>
         </div>
       </div>
     </div>
@@ -853,7 +853,7 @@ function buildHourSelects() {
   });
 }
 
-const SETTING_KEYS = ['CODING_WINDOW_ENABLED','CODING_START_H','CODING_END_H','TIMEZONE','FIVE_HOUR_PAUSE_PCT','WEEKLY_RESERVE_PCT','WEEKLY_HARD_STOP_PCT','POLL_INTERVAL_MIN','CACHE_STALE_MIN','TASK_TIMEOUT_MS'];
+const SETTING_KEYS = ['CODING_WINDOW_ENABLED','CODING_START_H','CODING_END_H','TIMEZONE','FIVE_HOUR_PAUSE_PCT','WEEKLY_RESERVE_PCT','WEEKLY_HARD_STOP_PCT','POLL_INTERVAL_MIN','CACHE_STALE_MIN','TASK_TIMEOUT_S'];
 
 function toggleCodingWindow(enabled) {
   document.getElementById('coding-window-times').style.display = enabled ? 'block' : 'none';
@@ -865,13 +865,13 @@ async function openSettings() {
   const res = await fetch('/settings');
   const cfg = await res.json();
   buildTimezoneSelect(cfg.TIMEZONE ?? 'America/Los_Angeles');
-  const SLIDER_KEYS = { FIVE_HOUR_PAUSE_PCT:'%', WEEKLY_RESERVE_PCT:'%', WEEKLY_HARD_STOP_PCT:'%', POLL_INTERVAL_MIN:'m', CACHE_STALE_MIN:'m', TASK_TIMEOUT_MS:'m' }
+  const SLIDER_KEYS = { FIVE_HOUR_PAUSE_PCT:'%', WEEKLY_RESERVE_PCT:'%', WEEKLY_HARD_STOP_PCT:'%', POLL_INTERVAL_MIN:'m', CACHE_STALE_MIN:'m', TASK_TIMEOUT_S:'s' }
   for (const k of SETTING_KEYS) {
     const el = document.getElementById('s-'+k);
     if (!el) continue;
     if (el.type === 'checkbox') { el.checked = cfg[k] === '1'; toggleCodingWindow(el.checked); continue; }
-    // TASK_TIMEOUT_MS is stored in ms, slider is in minutes
-    const displayVal = k === 'TASK_TIMEOUT_MS' ? Math.round(parseInt(cfg[k] ?? '600000') / 60000) : cfg[k] ?? '';
+    // TASK_TIMEOUT_S is stored in seconds — slider is also seconds, no conversion
+    const displayVal = cfg[k] ?? '';
     el.value = String(displayVal);
     const vEl = document.getElementById('v-'+k);
     if (vEl && SLIDER_KEYS[k]) vEl.textContent = displayVal + SLIDER_KEYS[k];
@@ -998,8 +998,8 @@ async function saveSettings() {
     const el = document.getElementById('s-'+k);
     if (!el) continue;
     if (el.type === 'checkbox') { body[k] = el.checked ? '1' : '0'; continue; }
-    // TASK_TIMEOUT_MS slider is in minutes — convert back to ms
-    body[k] = k === 'TASK_TIMEOUT_MS' ? String(parseInt(el.value) * 60000) : el.value;
+    // all numeric settings (incl. TASK_TIMEOUT_S in seconds) stored as-is
+    body[k] = el.value;
   }
   const res = await fetch('/settings', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
   if (res.ok) {
@@ -1032,17 +1032,17 @@ async function refresh() {
   } catch(e) { console.error('refresh failed', e); }
 }
 
-// Global default task timeout (minutes), read from system settings — used to
+// Global default task timeout (seconds), read from system settings — used to
 // prepopulate the task-timeout fields so users see the real default, not "default".
-let _taskTimeoutDefaultMin = 10
+let _taskTimeoutDefaultSec = 600
 
 async function loadTaskTimeoutDefault() {
   try {
     const cfg = await fetch('/settings').then(r => r.json())
-    _taskTimeoutDefaultMin = Math.round(parseInt(cfg.TASK_TIMEOUT_MS ?? '600000') / 60000) || 10
+    _taskTimeoutDefaultSec = parseInt(cfg.TASK_TIMEOUT_S ?? '600') || 600
   } catch { /* keep fallback */ }
-  const el = document.getElementById('q-timeout-min')
-  if (el && !el.value) el.value = _taskTimeoutDefaultMin
+  const el = document.getElementById('q-timeout-sec')
+  if (el && !el.value) el.value = _taskTimeoutDefaultSec
 }
 
 async function init() {
@@ -1658,24 +1658,24 @@ async function queueAddTask() {
   const schedule    = document.getElementById('q-schedule').value || 'once'
   const webhook_pre_url    = document.getElementById('q-webhook-pre').value.trim() || undefined
   const webhook_post_url   = document.getElementById('q-webhook-post').value.trim() || undefined
-  const webhook_timeout_ms = parseInt(document.getElementById('q-webhook-timeout').value) || 10000
+  const webhook_timeout_s  = parseInt(document.getElementById('q-webhook-timeout').value) || 10
   const webhook_retry      = parseInt(document.getElementById('q-webhook-retry').value) ?? 2
   const webhook_ignore_ssl = document.getElementById('q-webhook-ignore-ssl').checked ? 1 : 0
-  const timeoutMin = parseInt(document.getElementById('q-timeout-min').value)
-  const timeout_ms = Number.isFinite(timeoutMin) && timeoutMin > 0 ? timeoutMin * 60000 : undefined
+  const timeoutSec = parseInt(document.getElementById('q-timeout-sec').value)
+  const timeout_s = Number.isFinite(timeoutSec) && timeoutSec > 0 ? timeoutSec : undefined
   if (!desc) return alert('Description required')
   const r = await fetch('/queue', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ description: desc, cwd, model, provider_id, schedule,
-      webhook_pre_url, webhook_post_url, webhook_timeout_ms, webhook_retry, webhook_ignore_ssl, timeout_ms }),
+      webhook_pre_url, webhook_post_url, webhook_timeout_s, webhook_retry, webhook_ignore_ssl, timeout_s }),
   }).then(r => r.json())
   if (r.ok) {
     document.getElementById('q-desc').value = ''
     document.getElementById('q-cwd-select').value = ''
     document.getElementById('q-cwd-custom').style.display = 'none'
     document.getElementById('q-cwd-custom').value = ''
-    document.getElementById('q-timeout-min').value = _taskTimeoutDefaultMin
+    document.getElementById('q-timeout-sec').value = _taskTimeoutDefaultSec
     refreshQueue()
   } else {
     alert(r.error)
@@ -1717,10 +1717,10 @@ async function openRequeuePanel(taskId) {
   document.getElementById('rq-run-now').checked = false
   // prefill advanced fields from the task being edited
   document.getElementById('rq-cwd').value = t.cwd || ''
-  document.getElementById('rq-timeout-min').value = t.timeout_ms ? Math.round(t.timeout_ms / 60000) : _taskTimeoutDefaultMin
+  document.getElementById('rq-timeout-sec').value = t.timeout_s ? t.timeout_s : _taskTimeoutDefaultSec
   document.getElementById('rq-webhook-pre').value = t.webhook_pre_url || ''
   document.getElementById('rq-webhook-post').value = t.webhook_post_url || ''
-  document.getElementById('rq-webhook-timeout').value = t.webhook_timeout_ms ?? 10000
+  document.getElementById('rq-webhook-timeout').value = t.webhook_timeout_s ?? 10
   document.getElementById('rq-webhook-retry').value = t.webhook_retry ?? 2
   document.getElementById('rq-webhook-ignore-ssl').checked = (t.webhook_ignore_ssl ?? 0) === 1
 
@@ -1765,16 +1765,16 @@ async function rqSaveAndQueue() {
   if (!content) { alert('Task prompt cannot be empty'); return }
 
   // advanced fields from the panel
-  const timeoutMin = parseInt(document.getElementById('rq-timeout-min').value)
+  const timeoutSec = parseInt(document.getElementById('rq-timeout-sec').value)
   let body = {
     content, title, schedule, run_now: runNow,
     cwd: document.getElementById('rq-cwd').value.trim(),
     webhook_pre_url:    document.getElementById('rq-webhook-pre').value.trim() || undefined,
     webhook_post_url:   document.getElementById('rq-webhook-post').value.trim() || undefined,
-    webhook_timeout_ms: parseInt(document.getElementById('rq-webhook-timeout').value) || 10000,
+    webhook_timeout_s:  parseInt(document.getElementById('rq-webhook-timeout').value) || 10,
     webhook_retry:      parseInt(document.getElementById('rq-webhook-retry').value) || 0,
     webhook_ignore_ssl: document.getElementById('rq-webhook-ignore-ssl').checked ? 1 : 0,
-    timeout_ms:         Number.isFinite(timeoutMin) && timeoutMin > 0 ? timeoutMin * 60000 : undefined,
+    timeout_s:          Number.isFinite(timeoutSec) && timeoutSec > 0 ? timeoutSec : undefined,
   }
 
   let url = '/task-prompts'
@@ -1975,8 +1975,8 @@ async function installPlugin() {
         <input id="rq-cwd" placeholder="(task workspace)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:var(--mono);box-sizing:border-box">
       </div>
       <div>
-        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Task timeout (min, blank = default)</div>
-        <input id="rq-timeout-min" type="number" min="1" max="180" placeholder="default" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:inherit;box-sizing:border-box">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Task timeout (sec, blank = default)</div>
+        <input id="rq-timeout-sec" type="number" min="1" max="10800" placeholder="default" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:inherit;box-sizing:border-box">
       </div>
     </div>
     <details style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 12px">
@@ -1993,7 +1993,7 @@ async function installPlugin() {
         <div style="display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap">
           <div>
             <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:4px">Webhook timeout</div>
-            <div style="display:flex;align-items:center;gap:6px"><input id="rq-webhook-timeout" type="number" value="10000" min="1000" max="60000" style="width:90px;background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:inherit"><span style="font-size:11px;color:var(--muted)">ms</span></div>
+            <div style="display:flex;align-items:center;gap:6px"><input id="rq-webhook-timeout" type="number" value="10" min="1" max="120" style="width:90px;background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:inherit"><span style="font-size:11px;color:var(--muted)">s</span></div>
           </div>
           <div>
             <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:4px">Retries</div>

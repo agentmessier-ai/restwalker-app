@@ -47,7 +47,7 @@ export const webhookPlugin: Plugin = {
       await callWebhook(
         task.webhook_pre_url,
         { event: 'pre', task_id: task.id, description: task.description },
-        { timeoutMs: task.webhook_timeout_ms ?? 10000, retries: task.webhook_retry ?? 2, ignoreSsl: (task.webhook_ignore_ssl ?? 0) === 1 }
+        { timeoutMs: (task.webhook_timeout_s ?? 10) * 1000, retries: task.webhook_retry ?? 2, ignoreSsl: (task.webhook_ignore_ssl ?? 0) === 1 }
       )
     })
 
@@ -65,7 +65,7 @@ export const webhookPlugin: Plugin = {
           workspace_path: workspacePath,
           result: result.slice(0, 500),
         },
-        { timeoutMs: task.webhook_timeout_ms ?? 10000, retries: task.webhook_retry ?? 2, ignoreSsl: (task.webhook_ignore_ssl ?? 0) === 1 }
+        { timeoutMs: (task.webhook_timeout_s ?? 10) * 1000, retries: task.webhook_retry ?? 2, ignoreSsl: (task.webhook_ignore_ssl ?? 0) === 1 }
       )
     })
   },

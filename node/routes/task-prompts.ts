@@ -8,25 +8,25 @@ import { S, S_TASK_PROMPT } from './schemas.js'
 const TASK_CONFIG_PROPS = {
   webhook_pre_url:    { type: 'string' },
   webhook_post_url:   { type: 'string' },
-  webhook_timeout_ms: { type: 'integer' },
+  webhook_timeout_s:  { type: 'integer' },
   webhook_retry:      { type: 'integer' },
   webhook_ignore_ssl: { type: 'integer' },
-  timeout_ms:         { type: 'integer', description: 'Per-task agent timeout in ms; omit for the global default' },
+  timeout_s:          { type: 'integer', description: 'Per-task agent timeout in seconds; omit for the global default' },
 } as const
 
 interface TaskConfigBody {
   webhook_pre_url?: string; webhook_post_url?: string
-  webhook_timeout_ms?: number; webhook_retry?: number; webhook_ignore_ssl?: number; timeout_ms?: number
+  webhook_timeout_s?: number; webhook_retry?: number; webhook_ignore_ssl?: number; timeout_s?: number
 }
 
 function taskConfigOpts(b: TaskConfigBody) {
   return {
-    webhookPreUrl:    b.webhook_pre_url    ?? null,
-    webhookPostUrl:   b.webhook_post_url   ?? null,
-    webhookTimeoutMs: b.webhook_timeout_ms ?? 10000,
-    webhookRetry:     b.webhook_retry      ?? 2,
+    webhookPreUrl:    b.webhook_pre_url   ?? null,
+    webhookPostUrl:   b.webhook_post_url  ?? null,
+    webhookTimeoutS:  b.webhook_timeout_s ?? 10,
+    webhookRetry:     b.webhook_retry     ?? 2,
     webhookIgnoreSsl: b.webhook_ignore_ssl ?? 0,
-    timeoutMs:        b.timeout_ms         ?? null,
+    timeoutS:         b.timeout_s         ?? null,
   }
 }
 

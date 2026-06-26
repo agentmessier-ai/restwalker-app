@@ -186,8 +186,9 @@ export class ClaudePrintLoop implements AgentLoop {
           if (watcher) watcher.close().catch(() => {})
           writeLogs()
           if (timedOut) {
-            const mins = Math.round(this.timeoutMs / 60000 * 10) / 10
-            reject(new Error(`timed out after ${mins} min (${this.timeoutMs} ms) — raise this task's timeout_ms or the global TASK_TIMEOUT_MS to give it more time`))
+            const secs = Math.round(this.timeoutMs / 1000)
+            const mins = Math.round(secs / 60 * 10) / 10
+            reject(new Error(`timed out after ${secs}s (${mins} min) — raise this task's timeout_s or the global TASK_TIMEOUT_S to give it more time`))
           } else if ((code ?? 1) !== 0) {
             const errOut = (stdoutBufs.join('') || stderrBufs.join('')).trim()
             reject(new Error(`exit ${code}: ${errOut.slice(0, 500)}`))

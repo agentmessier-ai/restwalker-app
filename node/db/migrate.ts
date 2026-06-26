@@ -117,10 +117,27 @@ export function migrate(): void {
   const taskCols = (client.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).map(c => c.name)
   if (!taskCols.includes('webhook_pre_url'))    client.exec('ALTER TABLE tasks ADD COLUMN webhook_pre_url TEXT')
   if (!taskCols.includes('webhook_post_url'))   client.exec('ALTER TABLE tasks ADD COLUMN webhook_post_url TEXT')
-  if (!taskCols.includes('webhook_timeout_ms')) client.exec('ALTER TABLE tasks ADD COLUMN webhook_timeout_ms INTEGER NOT NULL DEFAULT 10000')
   if (!taskCols.includes('webhook_retry'))      client.exec('ALTER TABLE tasks ADD COLUMN webhook_retry INTEGER NOT NULL DEFAULT 2')
   if (!taskCols.includes('webhook_ignore_ssl')) client.exec('ALTER TABLE tasks ADD COLUMN webhook_ignore_ssl INTEGER NOT NULL DEFAULT 0')
-  if (!taskCols.includes('timeout_ms'))         client.exec('ALTER TABLE tasks ADD COLUMN timeout_ms INTEGER')
+  // Timeouts are stored in seconds. Migrate legacy ms columns (value / 1000) and drop them.
+  if (!taskCols.includes('webhook_timeout_s')) {
+    client.exec('ALTER TABLE tasks ADD COLUMN webhook_timeout_s INTEGER NOT NULL DEFAULT 10')
+    if (taskCols.includes('webhook_timeout_ms')) client.exec('UPDATE tasks SET webhook_timeout_s = MAX(1, webhook_timeout_ms / 1000)')
+  }
+  if (!taskCols.includes('timeout_s')) {
+    client.exec('ALTER TABLE tasks ADD COLUMN timeout_s INTEGER')
+    if (taskCols.includes('timeout_ms')) client.exec('UPDATE tasks SET timeout_s = timeout_ms / 1000 WHERE timeout_ms IS NOT NULL')
+  }
+  try { if (taskCols.includes('webhook_timeout_ms')) client.exec('ALTER TABLE tasks DROP COLUMN webhook_timeout_ms') } catch { /* sqlite < 3.35 */ }
+  try { if (taskCols.includes('timeout_ms'))         client.exec('ALTER TABLE tasks DROP COLUMN timeout_ms') } catch { /* sqlite < 3.35 */ }
+
+  // Setting: TASK_TIMEOUT_MS (ms) → TASK_TIMEOUT_S (seconds)
+  const oldTimeout = client.prepare("SELECT value FROM settings WHERE key='TASK_TIMEOUT_MS'").get() as { value?: string } | undefined
+  if (oldTimeout?.value) {
+    const secs = Math.max(1, Math.round(parseInt(oldTimeout.value) / 1000))
+    client.prepare("UPDATE settings SET value=? WHERE key='TASK_TIMEOUT_S'").run(String(secs))
+    client.exec("DELETE FROM settings WHERE key='TASK_TIMEOUT_MS'")
+  }
 
   // Seed default provider
   const count = db.select({ n: sql<number>`count(*)` }).from(schema.providers).get()!.n

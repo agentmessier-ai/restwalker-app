@@ -92,10 +92,10 @@ export default async function queueRoutes(app: FastifyInstance) {
           schedule:         { type: 'string', enum: ['once','hourly','daily','weekly','monthly'], default: 'once' },
           webhook_pre_url:  { type: 'string' },
           webhook_post_url: { type: 'string' },
-          webhook_timeout_ms: { type: 'integer', default: 10000 },
+          webhook_timeout_s: { type: 'integer', default: 10 },
           webhook_retry:    { type: 'integer', default: 2 },
           webhook_ignore_ssl: { type: 'integer', default: 0 },
-          timeout_ms:       { type: 'integer', description: 'Per-task agent timeout in ms; omit to use the global TASK_TIMEOUT_MS setting (default 10 min)' },
+          timeout_s:        { type: 'integer', description: 'Per-task agent timeout in seconds; omit to use the global TASK_TIMEOUT_S setting (default 600 = 10 min)' },
         },
       },
       response: {
@@ -105,20 +105,20 @@ export default async function queueRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     const { description, cwd, model, provider_id, schedule,
-            webhook_pre_url, webhook_post_url, webhook_timeout_ms, webhook_retry, webhook_ignore_ssl, timeout_ms } =
+            webhook_pre_url, webhook_post_url, webhook_timeout_s, webhook_retry, webhook_ignore_ssl, timeout_s } =
       req.body as {
         description?: string; cwd?: string; model?: string; provider_id?: number; schedule?: db.TaskSchedule
         webhook_pre_url?: string; webhook_post_url?: string
-        webhook_timeout_ms?: number; webhook_retry?: number; webhook_ignore_ssl?: number; timeout_ms?: number
+        webhook_timeout_s?: number; webhook_retry?: number; webhook_ignore_ssl?: number; timeout_s?: number
       }
     if (!description?.trim()) return reply.code(400).send({ error: 'description required' })
     const task = db.addTask(description.trim(), cwd?.trim(), model?.trim(), provider_id, schedule || 'once', {
-      webhookPreUrl:    webhook_pre_url    ?? null,
-      webhookPostUrl:   webhook_post_url   ?? null,
-      webhookTimeoutMs: webhook_timeout_ms ?? 10000,
-      webhookRetry:     webhook_retry      ?? 2,
+      webhookPreUrl:    webhook_pre_url   ?? null,
+      webhookPostUrl:   webhook_post_url  ?? null,
+      webhookTimeoutS:  webhook_timeout_s ?? 10,
+      webhookRetry:     webhook_retry     ?? 2,
       webhookIgnoreSsl: webhook_ignore_ssl ?? 0,
-      timeoutMs:        timeout_ms         ?? null,
+      timeoutS:         timeout_s         ?? null,
     })
     enqueueTask(task)
     app.log.info(`[queue] added #${task.id} (${task.schedule}): ${description.slice(0, 80)}`)

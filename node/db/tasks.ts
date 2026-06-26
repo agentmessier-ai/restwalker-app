@@ -30,10 +30,10 @@ export function addTask(
     promptId?: number
     webhookPreUrl?: string | null
     webhookPostUrl?: string | null
-    webhookTimeoutMs?: number
+    webhookTimeoutS?: number
     webhookRetry?: number
     webhookIgnoreSsl?: number
-    timeoutMs?: number | null
+    timeoutS?: number | null
   },
 ): Task {
   const task = db.insert(schema.tasks).values({
@@ -45,10 +45,10 @@ export function addTask(
     prompt_id: opts?.promptId ?? null,
     webhook_pre_url:    opts?.webhookPreUrl    ?? null,
     webhook_post_url:   opts?.webhookPostUrl   ?? null,
-    webhook_timeout_ms: opts?.webhookTimeoutMs ?? 10000,
+    webhook_timeout_s:  opts?.webhookTimeoutS  ?? 10,
     webhook_retry:      opts?.webhookRetry     ?? 2,
     webhook_ignore_ssl: opts?.webhookIgnoreSsl ?? 0,
-    timeout_ms:         opts?.timeoutMs        ?? null,
+    timeout_s:          opts?.timeoutS         ?? null,
   }).returning().get()!
   // For recurring tasks, set origin_id to self on first creation
   if (schedule !== 'once') {
@@ -97,10 +97,10 @@ export function createNextRun(task: Task): Task | null {
     prompt_id,
     webhook_pre_url:    task.webhook_pre_url    ?? null,
     webhook_post_url:   task.webhook_post_url   ?? null,
-    webhook_timeout_ms: task.webhook_timeout_ms ?? 10000,
+    webhook_timeout_s:  task.webhook_timeout_s  ?? 10,
     webhook_retry:      task.webhook_retry      ?? 2,
     webhook_ignore_ssl: task.webhook_ignore_ssl ?? 0,
-    timeout_ms:         task.timeout_ms         ?? null,
+    timeout_s:          task.timeout_s          ?? null,
   }).returning().get()!
 }
 
@@ -142,10 +142,10 @@ function createNextRunInTx(tx: Parameters<Parameters<typeof db.transaction>[0]>[
     prompt_id,
     webhook_pre_url:    task.webhook_pre_url    ?? null,
     webhook_post_url:   task.webhook_post_url   ?? null,
-    webhook_timeout_ms: task.webhook_timeout_ms ?? 10000,
+    webhook_timeout_s:  task.webhook_timeout_s  ?? 10,
     webhook_retry:      task.webhook_retry      ?? 2,
     webhook_ignore_ssl: task.webhook_ignore_ssl ?? 0,
-    timeout_ms:         task.timeout_ms         ?? null,
+    timeout_s:          task.timeout_s          ?? null,
   }).returning().get()!
 }
 

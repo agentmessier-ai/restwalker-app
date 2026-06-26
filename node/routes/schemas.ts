@@ -37,10 +37,10 @@ export const S = {
       prompt_id:    { type: 'integer', nullable: true },
       webhook_pre_url:    { type: 'string', nullable: true },
       webhook_post_url:   { type: 'string', nullable: true },
-      webhook_timeout_ms: { type: 'integer' },
+      webhook_timeout_s:  { type: 'integer' },
       webhook_retry:      { type: 'integer' },
       webhook_ignore_ssl: { type: 'integer' },
-      timeout_ms:         { type: 'integer', nullable: true },
+      timeout_s:          { type: 'integer', nullable: true },
     },
   },
   ok: {

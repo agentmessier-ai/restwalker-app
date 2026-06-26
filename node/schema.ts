@@ -68,11 +68,11 @@ export const tasks = sqliteTable('tasks', {
   prompt_id:     integer('prompt_id'),
   webhook_pre_url:    text('webhook_pre_url'),
   webhook_post_url:   text('webhook_post_url'),
-  webhook_timeout_ms: integer('webhook_timeout_ms').notNull().default(10000),
+  webhook_timeout_s:  integer('webhook_timeout_s').notNull().default(10),
   webhook_retry:      integer('webhook_retry').notNull().default(2),
   webhook_ignore_ssl: integer('webhook_ignore_ssl').notNull().default(0),
-  // per-task agent timeout; null = use the global TASK_TIMEOUT_MS setting
-  timeout_ms:         integer('timeout_ms'),
+  // per-task agent timeout in seconds; null = use the global TASK_TIMEOUT_S setting
+  timeout_s:          integer('timeout_s'),
 })
 
 export const taskPrompts = sqliteTable('task_prompts', {
