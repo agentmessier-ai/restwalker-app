@@ -50,8 +50,9 @@ switch (cmd) {
   }
 
   case 'status': {
+    const port = process.env.PORT ?? '47290'
     try {
-      const res = await fetch('http://localhost:47290/healthz')
+      const res = await fetch(`http://localhost:${port}/healthz`)
       if (res.ok) {
         const data = await res.json()
         console.log('restwalker is running —', JSON.stringify(data))
@@ -60,7 +61,7 @@ switch (cmd) {
         process.exit(1)
       }
     } catch {
-      console.log('restwalker is not running (nothing on port 47290)')
+      console.log(`restwalker is not running (nothing on port ${port})`)
       process.exit(1)
     }
     break

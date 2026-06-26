@@ -47,6 +47,37 @@ Open `http://localhost:47290` to confirm it's running.
 NODE=/opt/homebrew/bin/node ./install.sh
 ```
 
+### Host & port
+
+restwalker binds **`127.0.0.1:47290`** by default — localhost only. Because tasks can run
+arbitrary shell commands (the `Bash` tool), the service is deliberately **not** reachable
+from your network unless you opt in.
+
+Set them at install time:
+
+```bash
+HOST=0.0.0.0 PORT=8080 ./install.sh    # expose on the LAN, custom port
+```
+
+Or change an existing install by editing the `HOST` / `PORT` keys in the LaunchAgent plist
+and reloading:
+
+```bash
+# ~/Library/LaunchAgents/com.restwalker.plist  →  EnvironmentVariables
+#   <key>HOST</key><string>0.0.0.0</string>
+#   <key>PORT</key><string>8080</string>
+launchctl unload ~/Library/LaunchAgents/com.restwalker.plist
+launchctl load   ~/Library/LaunchAgents/com.restwalker.plist
+```
+
+> ⚠️ `HOST=0.0.0.0` exposes a Bash-capable service to every device on your network. Only do
+> this on a trusted network. There is no built-in auth — put it behind a reverse proxy /
+> firewall if you need remote access.
+
+Host and port are **boot-time** settings: a running server can't rebind its socket, so a
+change only takes effect after the reload above (and if you changed the port, reopen the
+dashboard on the new one).
+
 ## Uninstall
 
 ```bash

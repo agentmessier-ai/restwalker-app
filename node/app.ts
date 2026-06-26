@@ -29,6 +29,10 @@ import pluginRoutes       from './routes/plugins.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PORT      = parseInt(process.env.PORT ?? '47290')
+// Bind localhost by default — this service can run arbitrary Bash via tasks, so it
+// must not be reachable from the LAN unless the operator explicitly opts in by
+// setting HOST=0.0.0.0 in the LaunchAgent plist's EnvironmentVariables.
+const HOST      = process.env.HOST ?? '127.0.0.1'
 const LOG_FILE  = process.env.RESTWALKER_LOG ?? join(homedir(), '.restwalker', 'restwalker.log')
 
 const app = Fastify({
@@ -125,8 +129,10 @@ function startScheduleChecker(): void {
 db.migrate()
 const orphans = db.resetOrphanedTasks()
 if (orphans > 0) app.log.warn(`[boot] reset ${orphans} orphaned running task(s) to pending`)
-await app.listen({ host: '0.0.0.0', port: PORT })
-app.log.info(`[restwalker] running on http://localhost:${PORT}`)
+await app.listen({ host: HOST, port: PORT })
+const shown = HOST === '0.0.0.0' ? 'localhost' : HOST
+app.log.info(`[restwalker] running on http://${shown}:${PORT} (bound ${HOST})`)
+if (HOST === '0.0.0.0') app.log.warn('[restwalker] bound to 0.0.0.0 — reachable from the LAN; this service can run Bash, ensure the network is trusted')
 app.log.info(`[restwalker] watching ${scheduler.USAGE_CACHE}`)
 startPoller()
 startScheduleChecker()

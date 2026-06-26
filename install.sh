@@ -7,6 +7,11 @@ PLIST_SRC="$INSTALL_DIR/com.restwalker.plist"
 PLIST_DST="$HOME/Library/LaunchAgents/com.restwalker.plist"
 RUNTIME="node"  # default
 
+# Bind address + port. Default to localhost — this service can run Bash via tasks,
+# so it must not be LAN-reachable unless the operator opts in (HOST=0.0.0.0 install).
+HOST="${HOST:-127.0.0.1}"
+PORT="${PORT:-47290}"
+
 # ── Parse args ────────────────────────────────────────────────────────────────
 for arg in "$@"; do
   case $arg in
@@ -72,9 +77,9 @@ else
     <string>uvicorn</string>
     <string>app:app</string>
     <string>--host</string>
-    <string>0.0.0.0</string>
+    <string>$HOST</string>
     <string>--port</string>
-    <string>47290</string>"
+    <string>$PORT</string>"
 fi
 
 # ── Data directory ─────────────────────────────────────────────────────────────
@@ -108,6 +113,10 @@ cat > "$PLIST_DST" <<PLIST
   <dict>
     <key>CLAUDE_BIN</key>
     <string>$CLAUDE_BIN</string>
+    <key>HOST</key>
+    <string>$HOST</string>
+    <key>PORT</key>
+    <string>$PORT</string>
   </dict>
   <key>StandardOutPath</key>
   <string>$DATA_DIR/restwalker.log</string>
@@ -170,7 +179,11 @@ else
   echo "    claude mcp add --scope user restwalker -- node $TSX $INSTALL_DIR/node/mcp.ts"
 fi
 
+SHOWN_HOST="$HOST"; [ "$HOST" = "0.0.0.0" ] && SHOWN_HOST="localhost"
 echo ""
-echo "✓ restwalker ($RUNTIME) → http://localhost:47290  |  logs: tail -f $DATA_DIR/restwalker.log"
-echo "  Dashboard + task queue: http://localhost:47290"
+echo "✓ restwalker ($RUNTIME) → http://$SHOWN_HOST:$PORT  |  logs: tail -f $DATA_DIR/restwalker.log"
+echo "  Dashboard + task queue: http://$SHOWN_HOST:$PORT  (bound $HOST)"
+[ "$HOST" = "0.0.0.0" ] && echo "  ⚠ bound to 0.0.0.0 — reachable from the LAN; ensure the network is trusted (this service can run Bash)"
+echo "  Change host/port: edit HOST/PORT in $PLIST_DST, then: launchctl unload \"$PLIST_DST\" && launchctl load \"$PLIST_DST\""
+echo "  Or reinstall with overrides:  HOST=0.0.0.0 PORT=8080 ./install.sh"
 echo "  To uninstall: ./uninstall.sh"
