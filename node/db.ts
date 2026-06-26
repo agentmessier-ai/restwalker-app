@@ -292,7 +292,7 @@ export function addTask(
 ): Task {
   return db.insert(schema.tasks).values({
     description,
-    cwd: cwd || process.env.HOME || '',
+    cwd: cwd || '',
     model: model || DEFAULT_MODEL,
     provider_id: providerId ?? null,
     schedule,
