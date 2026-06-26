@@ -10,14 +10,14 @@ export type SystemPrompt = typeof schema.systemPrompts.$inferSelect
 // line after the run and stores it on the task.
 export const TAGS_PROTOCOL = `\
 ## Restwalker Tagging Protocol
-Before you finish, classify this task with 2–5 short topic tags so the user can filter and group their tasks. Output ONE line in this exact format near the end of your response:
+Before you finish, classify this task with up to 3 short topic tags so the user can filter and group their tasks. Output ONE line in this exact format near the end of your response:
 
 TAGS: ["tag-one", "tag-two"]
 
 Rules:
 - Lowercase kebab-case, 1–3 words each (e.g. "bug-fix", "refactor", "research", "docs", "frontend", "backend", "testing", "devops", "data", "skill", "report").
 - Pick tags for the *kind* of work and the *domain* — what the task is about, not how it went.
-- 2–5 tags, most specific first. This line is required.
+- 1–3 tags, most specific first. This line is required.
 
 ---
 

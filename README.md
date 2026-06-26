@@ -177,7 +177,7 @@ This works with any agent provider — the preamble is plain text injected into 
 
 Every task is auto-tagged by the agent. An always-on preamble (prepended to whatever
 system prompt is active, so it can't be edited away) asks the agent to classify its work
-with 2–5 short topic tags and emit one line:
+with up to 3 short topic tags and emit one line:
 
 ```
 TAGS: ["backend", "refactor", "testing"]

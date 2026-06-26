@@ -128,7 +128,7 @@ export class ClaudeSDKLoop implements AgentLoop {
     if (tagsMatch) {
       try {
         const arr = JSON.parse(tagsMatch[tagsMatch.length - 1].replace(/^TAGS:\s*/, ''))
-        if (Array.isArray(arr)) tags = arr.map(String).map(s => s.trim().toLowerCase()).filter(Boolean).slice(0, 6)
+        if (Array.isArray(arr)) tags = arr.map(String).map(s => s.trim().toLowerCase()).filter(Boolean).slice(0, 3)
       } catch {}
     }
 
