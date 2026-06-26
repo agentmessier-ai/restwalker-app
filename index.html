@@ -1047,8 +1047,13 @@ async function loadProviders() {
   _providers = data.providers
   // populate add-task dropdown
   const sel = document.getElementById('q-provider')
-  sel.innerHTML = `<option value="">default (${_providers.find(p => p.is_default)?.name ?? '—'})</option>` +
-    _providers.map(p => `<option value="${p.id}">${p.name}${p.is_default ? ' ★' : ''}</option>`).join('')
+  // The "default (…)" shortcut (value "" = auto-follow whichever is default) is only
+  // meaningful with 2+ providers. With one provider it just duplicates its own line.
+  const defaultOption = _providers.length > 1
+    ? `<option value="">default (${_providers.find(p => p.is_default)?.name ?? '—'})</option>`
+    : ''
+  sel.innerHTML = defaultOption +
+    _providers.map(p => `<option value="${p.id}"${_providers.length === 1 ? ' selected' : ''}>${p.name}${p.is_default ? ' ★' : ''}</option>`).join('')
   // render settings list
   renderProviderList()
 }
