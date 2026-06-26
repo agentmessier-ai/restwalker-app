@@ -183,6 +183,7 @@
       <button id="tab-dash" onclick="switchTab('dash')" style="background:var(--accent);color:white;border:none;border-radius:6px;padding:5px 10px;cursor:pointer;font-family:inherit;font-size:12px">Dashboard</button>
       <button id="tab-queue" onclick="switchTab('queue')" style="background:var(--blue);color:white;border:none;border-radius:6px;padding:6px 14px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;letter-spacing:0.01em">⚡ Queue</button>
     </div>
+    <button class="gear-btn" title="System Prompt" onclick="openSPModal()" style="font-size:13px">📋</button>
     <button class="gear-btn" title="Settings" onclick="openSettings()">⚙</button>
   </div>
 </header>
@@ -443,6 +444,40 @@
       <span class="save-status" id="save-status">✓ Saved</span>
       <button class="btn btn-secondary" onclick="closeSettings()">Cancel</button>
       <button class="btn btn-primary" onclick="saveSettings()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- System Prompt modal -->
+<div class="modal-overlay" id="sp-modal-overlay" onclick="if(event.target===this)closeSPModal()" style="z-index:110">
+  <div class="modal" style="width:680px;max-width:calc(100vw - 32px)">
+    <div class="modal-header">
+      <div>
+        <h2>System Prompt</h2>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">Injected before every task. Edit to customize agent behavior. Versions are kept forever.</div>
+      </div>
+      <button class="modal-close" onclick="closeSPModal()">✕</button>
+    </div>
+
+    <!-- Active prompt editor -->
+    <div style="margin-bottom:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <span style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.6px">Active prompt</span>
+        <span id="sp-active-badge" style="font-size:10px;padding:2px 8px;border-radius:4px;background:rgba(99,102,241,.15);color:#a5b4fc"></span>
+      </div>
+      <textarea id="sp-editor" rows="14" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:10px;font-family:var(--mono);font-size:11px;resize:vertical;line-height:1.6;box-sizing:border-box"></textarea>
+      <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+        <input id="sp-label" placeholder="Label (optional, e.g. 'Added strict JSON output rule')" style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:inherit">
+        <button onclick="spSave()" style="background:var(--blue);color:#fff;border:none;border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;font-family:inherit;white-space:nowrap">Save as new version</button>
+        <button id="sp-restore-btn" onclick="spRestoreBuiltin()" style="background:var(--card);border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:7px 10px;font-size:12px;cursor:pointer;font-family:inherit;white-space:nowrap" title="Create a new version with the built-in default content">↩ Restore default</button>
+      </div>
+      <div id="sp-save-status" style="font-size:11px;color:var(--green);margin-top:6px;display:none">✓ Saved as new version</div>
+    </div>
+
+    <!-- Version history -->
+    <div>
+      <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">Version history</div>
+      <div id="sp-version-list" style="max-height:260px;overflow-y:auto;display:flex;flex-direction:column;gap:4px"></div>
     </div>
   </div>
 </div>
@@ -754,6 +789,109 @@ async function openSettings() {
 
 function closeSettings() {
   document.getElementById('modal-overlay').classList.remove('open');
+}
+
+// ── System Prompt modal ───────────────────────────────────────────────────────
+
+let _spData = null  // { active, builtin, versions }
+
+async function openSPModal() {
+  document.getElementById('sp-modal-overlay').classList.add('open')
+  await spLoad()
+}
+
+function closeSPModal() {
+  document.getElementById('sp-modal-overlay').classList.remove('open')
+}
+
+async function spLoad() {
+  try {
+    _spData = await fetch('/system-prompt').then(r => r.json())
+    spRender()
+  } catch(e) {
+    console.error('system-prompt load error', e)
+  }
+}
+
+function spRender() {
+  if (!_spData) return
+  const { active, builtin, versions } = _spData
+
+  // Editor
+  document.getElementById('sp-editor').value = active.content
+  document.getElementById('sp-label').value = ''
+
+  // Badge
+  const badge = document.getElementById('sp-active-badge')
+  const isBuiltin = active.is_builtin === 1
+  badge.textContent = `v${active.version}${isBuiltin ? ' · built-in default' : active.label ? ` · ${active.label}` : ''}`
+  badge.style.background = isBuiltin ? 'rgba(34,197,94,.12)' : 'rgba(99,102,241,.15)'
+  badge.style.color = isBuiltin ? '#4ade80' : '#a5b4fc'
+
+  // Restore button: disable if already on builtin content
+  const restoreBtn = document.getElementById('sp-restore-btn')
+  restoreBtn.disabled = active.content === builtin.content
+  restoreBtn.style.opacity = restoreBtn.disabled ? '0.4' : '1'
+
+  // Version history
+  const list = document.getElementById('sp-version-list')
+  list.innerHTML = versions.map(v => {
+    const isActive = v.id === active.id
+    const isBuiltinV = v.is_builtin === 1
+    return `<div style="display:flex;align-items:flex-start;gap:10px;padding:8px 10px;background:${isActive ? 'rgba(99,102,241,.1)' : 'var(--bg)'};border:1px solid ${isActive ? 'rgba(99,102,241,.3)' : 'var(--border)'};border-radius:6px">
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <span style="font-size:11px;font-weight:700;font-family:var(--mono);color:${isBuiltinV ? '#4ade80' : '#a5b4fc'}">v${v.version}</span>
+          ${isActive ? '<span style="font-size:10px;background:rgba(99,102,241,.2);color:#a5b4fc;padding:1px 6px;border-radius:3px">active</span>' : ''}
+          ${isBuiltinV ? '<span style="font-size:10px;background:rgba(34,197,94,.12);color:#4ade80;padding:1px 6px;border-radius:3px">built-in</span>' : ''}
+          ${v.label ? `<span style="font-size:11px;color:var(--muted)">${escHtml(v.label)}</span>` : ''}
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">${new Date(v.created_at).toLocaleString()}</div>
+        <pre style="font-size:10px;color:var(--muted);font-family:var(--mono);white-space:pre-wrap;margin-top:4px;max-height:40px;overflow:hidden;line-height:1.4">${escHtml(v.content.slice(0, 120))}${v.content.length > 120 ? '…' : ''}</pre>
+      </div>
+      <div style="display:flex;gap:4px;flex-shrink:0;margin-top:2px">
+        ${!isActive ? `<button onclick="spActivate(${v.id})" style="background:var(--card);border:1px solid var(--border);color:var(--muted);border-radius:4px;padding:3px 8px;font-size:11px;cursor:pointer;font-family:inherit" title="Load this version into editor">Load</button>` : ''}
+        ${!isBuiltinV ? `<button onclick="spDelete(${v.id})" style="background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:4px;padding:3px 8px;font-size:11px;cursor:pointer;font-family:inherit">Delete</button>` : ''}
+      </div>
+    </div>`
+  }).join('')
+}
+
+async function spSave() {
+  const content = document.getElementById('sp-editor').value.trim()
+  const label   = document.getElementById('sp-label').value.trim()
+  if (!content) { alert('Prompt cannot be empty'); return }
+  const r = await fetch('/system-prompt', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ content, label }) }).then(r=>r.json())
+  if (r.ok) {
+    const st = document.getElementById('sp-save-status')
+    st.style.display = 'block'
+    setTimeout(() => { st.style.display = 'none' }, 2000)
+    await spLoad()
+  }
+}
+
+async function spRestoreBuiltin() {
+  if (!confirm('Create a new version from the built-in default? This will become the active prompt.')) return
+  const r = await fetch('/system-prompt/restore-builtin', { method:'POST' }).then(r=>r.json())
+  if (r.ok) await spLoad()
+}
+
+async function spActivate(id) {
+  // "Activate" = load the content into the editor for review before saving
+  const v = _spData?.versions?.find(x => x.id === id)
+  if (!v) return
+  document.getElementById('sp-editor').value = v.content
+  document.getElementById('sp-label').value = v.label ? `Copy of: ${v.label}` : `Copy of v${v.version}`
+  document.getElementById('sp-editor').scrollIntoView({ behavior: 'smooth' })
+}
+
+async function spDelete(id) {
+  const v = _spData?.versions?.find(x => x.id === id)
+  if (!v) return
+  if (!confirm(`Delete v${v.version}${v.label ? ` (${v.label})` : ''}? This cannot be undone.`)) return
+  const r = await fetch(`/system-prompt/${id}`, { method:'DELETE' }).then(r=>r.json())
+  if (r.ok) await spLoad()
+  else alert(r.error)
 }
 
 function maybeCloseModal(e) {

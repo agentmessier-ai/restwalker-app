@@ -8,26 +8,7 @@ import * as db from './db.js'
 import * as scheduler from './scheduler.js'
 import { findSessionJsonl, analyzeSession } from './session.js'
 
-// Injected into every task prompt regardless of provider — agent declares artifacts via this protocol
-const ARTIFACT_PREAMBLE = `\
-## Restwalker Artifact Protocol
-You are running as a background task inside restwalker, an idle-time Claude task runner.
-
-Your task workspace is already set as your working directory. Any files you create here are automatically tracked and shown to the user in the restwalker dashboard.
-
-When you create or generate a file that the user should see (a report, a skill, a script, generated code, data, etc.), declare it by outputting a line in this exact format:
-
-ARTIFACT: {"path": "/absolute/path/to/file", "description": "one-line description of what this file is"}
-
-Rules:
-- Use the absolute path
-- One ARTIFACT line per file
-- Declare it after the file is written, not before
-- Only declare files meant for the user to review — not intermediate scratch files
-
----
-
-`
+// Loaded from DB at task-run time so user edits take effect immediately
 
 const require = createRequire(import.meta.url)
 const SqliteStore = require('better-queue-sqlite')
@@ -43,7 +24,8 @@ function resolveProvider(task: db.Task, workspacePath: string): { command: strin
 
   const cwd   = task.cwd || workspacePath
   const model = task.model || 'claude-sonnet-4-6'
-  const promptWithPreamble = ARTIFACT_PREAMBLE + task.description
+  const systemPrompt = db.getActiveSystemPrompt().content
+  const promptWithPreamble = systemPrompt + task.description
   let template: string[]
   try { template = JSON.parse(provider.args_template) } catch { template = [provider.args_template] }
 

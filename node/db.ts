@@ -50,6 +50,7 @@ export interface HistoryBucket {
 export type Provider     = typeof schema.providers.$inferSelect
 export type Task         = typeof schema.tasks.$inferSelect
 export type Artifact     = typeof schema.artifacts.$inferSelect
+export type SystemPrompt = typeof schema.systemPrompts.$inferSelect
 export type TaskStatus   = 'scheduled' | 'pending' | 'running' | 'done' | 'failed' | 'cancelled'
 export type TaskSchedule = 'once' | 'hourly' | 'daily' | 'weekly' | 'monthly'
 
@@ -79,6 +80,26 @@ const DEFAULT_CLAUDE_ARGS = JSON.stringify([
   '--print', '--permission-mode', 'auto', '--output-format', 'text',
   '--model', '{{model}}', '{{task}}',
 ])
+
+export const BUILTIN_SYSTEM_PROMPT = `\
+## Restwalker Artifact Protocol
+You are running as a background task inside restwalker — an idle-time Claude task runner that uses your Claude Max plan's leftover tokens to do meaningful work while you rest.
+
+Your task workspace is already set as your working directory. Any files you create here are automatically tracked and shown to the user in the restwalker dashboard.
+
+When you create or generate a file that the user should see (a report, a skill, a script, generated code, data, etc.), declare it by outputting a line in this exact format:
+
+ARTIFACT: {"path": "/absolute/path/to/file", "description": "one-line description of what this file is"}
+
+Rules:
+- Use the absolute path
+- One ARTIFACT line per file
+- Declare it after the file is written, not before
+- Only declare files meant for the user to review — not intermediate scratch files
+
+---
+
+`
 
 export function migrate(): void {
   client.exec(`
@@ -136,6 +157,15 @@ export function migrate(): void {
       size        INTEGER NOT NULL DEFAULT 0,
       created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
     );
+
+    CREATE TABLE IF NOT EXISTS system_prompts (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      version    INTEGER NOT NULL,
+      label      TEXT    NOT NULL DEFAULT '',
+      content    TEXT    NOT NULL,
+      is_builtin INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+    );
   `)
 
   // Seed settings defaults
@@ -161,6 +191,14 @@ export function migrate(): void {
       command: process.env.CLAUDE_BIN ?? 'claude',
       args_template: DEFAULT_CLAUDE_ARGS,
       is_default: 1,
+    }).run()
+  }
+
+  // Seed builtin system prompt (once)
+  const spCount = db.select({ n: sql<number>`count(*)` }).from(schema.systemPrompts).where(eq(schema.systemPrompts.is_builtin, 1)).get()!.n
+  if (!spCount) {
+    db.insert(schema.systemPrompts).values({
+      version: 1, label: 'Built-in default', content: BUILTIN_SYSTEM_PROMPT, is_builtin: 1,
     }).run()
   }
 
@@ -434,6 +472,53 @@ export function getArtifacts(taskId: number): Artifact[] {
 
 export function getArtifact(id: number): Artifact | null {
   return db.select().from(schema.artifacts).where(eq(schema.artifacts.id, id)).get() ?? null
+}
+
+// ── System prompt repository ───────────────────────────────────────────────────
+
+export function getActiveSystemPrompt(): SystemPrompt {
+  // Active = highest version (user's latest save), or builtin if no user versions
+  const active = db.select().from(schema.systemPrompts)
+    .orderBy(desc(schema.systemPrompts.version))
+    .limit(1).get()
+  if (active) return active
+  // Fallback: seed and return builtin (shouldn't happen after migrate())
+  return db.insert(schema.systemPrompts).values({
+    version: 1, label: 'Built-in default', content: BUILTIN_SYSTEM_PROMPT, is_builtin: 1,
+  }).returning().get()!
+}
+
+export function getSystemPromptVersions(): SystemPrompt[] {
+  return db.select().from(schema.systemPrompts)
+    .orderBy(desc(schema.systemPrompts.version))
+    .all()
+}
+
+export function saveSystemPromptVersion(content: string, label = ''): SystemPrompt {
+  const maxRow = db.select({ v: sql<number>`max(version)` }).from(schema.systemPrompts).get()
+  const nextVersion = (maxRow?.v ?? 0) + 1
+  return db.insert(schema.systemPrompts).values({
+    version: nextVersion, label, content, is_builtin: 0,
+  }).returning().get()!
+}
+
+export function getBuiltinSystemPrompt(): SystemPrompt {
+  return db.select().from(schema.systemPrompts)
+    .where(eq(schema.systemPrompts.is_builtin, 1))
+    .orderBy(asc(schema.systemPrompts.version))
+    .limit(1).get()!
+}
+
+export function getSystemPromptById(id: number): SystemPrompt | null {
+  return db.select().from(schema.systemPrompts).where(eq(schema.systemPrompts.id, id)).get() ?? null
+}
+
+export function deleteSystemPromptVersion(id: number): boolean {
+  // Cannot delete the builtin
+  const sp = db.select().from(schema.systemPrompts).where(eq(schema.systemPrompts.id, id)).get()
+  if (!sp || sp.is_builtin) return false
+  db.delete(schema.systemPrompts).where(eq(schema.systemPrompts.id, id)).run()
+  return true
 }
 
 export function queueStats(): { scheduled: number; pending: number; running: number; done: number; failed: number; total: number } {

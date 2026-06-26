@@ -26,6 +26,15 @@ export const providers = sqliteTable('providers', {
   created_at:   text('created_at').notNull().default(NOW),
 })
 
+export const systemPrompts = sqliteTable('system_prompts', {
+  id:         integer('id').primaryKey({ autoIncrement: true }),
+  version:    integer('version').notNull(),
+  label:      text('label').notNull().default(''),
+  content:    text('content').notNull(),
+  is_builtin: integer('is_builtin').notNull().default(0),
+  created_at: text('created_at').notNull().default(NOW),
+})
+
 export const artifacts = sqliteTable('artifacts', {
   id:          integer('id').primaryKey({ autoIncrement: true }),
   task_id:     integer('task_id').notNull().references(() => tasks.id, { onDelete: 'cascade' }),
