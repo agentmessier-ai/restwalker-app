@@ -28,6 +28,12 @@ export const SETTING_DEFAULTS: Settings = {
   POLL_INTERVAL_MIN:    process.env.POLL_INTERVAL_MIN     ?? '5',
   CACHE_STALE_MIN:      process.env.CACHE_STALE_MIN       ?? '30',
   TASK_TIMEOUT_S:       process.env.TASK_TIMEOUT_S        ?? '600',
+  // Teleport: cross-folder is always-on locally; cross-Mac is opt-in. When
+  // enabled, the daemon advertises/browses on the LAN and serves /teleport to
+  // peers that present a matching TELEPORT_TOKEN.
+  TELEPORT_NETWORK_ENABLED: process.env.TELEPORT_NETWORK_ENABLED ?? '0',
+  TELEPORT_TOKEN:           process.env.TELEPORT_TOKEN           ?? '',
+  TELEPORT_DEFAULT_WINDOW:  process.env.TELEPORT_DEFAULT_WINDOW  ?? '6h',
 }
 
 // ── Settings repository ────────────────────────────────────────────────────────

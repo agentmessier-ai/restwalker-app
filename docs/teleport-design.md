@@ -175,13 +175,15 @@ foo"), `teleport(folder="foo")` returns the latest slice directly.
 - **Phase 3 (nice-to-have):** smarter slicing (semantic relevance, not just time), an
   "inject as a queued restwalker task" mode, multi-session merge.
 
-## Open questions (for you)
+## Decisions (locked, v1)
 
-1. **Return shape** — messages + summary digest (proposed), or just a tight summary, or the
-   raw JSONL? Digest is the balance; confirm.
-2. **Default window** — `1h` proposed. Good default?
-3. **Network in v1 or defer?** — ship local-only first (Phase 1) and add LAN teleport after,
-   or build both together?
-4. **Ambiguous folder** — return candidates (proposed) vs. auto-pick most-recent?
-5. **Discovery** — mDNS/Bonjour (zero-config, needs the `bonjour-service` dep) vs. a static
-   peer list in settings (simpler, manual)?
+1. **Return shape — raw conversation.** Return the actual messages (every user/assistant
+   turn's text + tool calls), not a summary. Tool *outputs/results* are truncated per-item
+   and the whole payload is size-capped with a `truncated` flag, so a 6h pull stays loadable;
+   a `full=1` flag can lift the per-item truncation.
+2. **Default window — 6h.**
+3. **Scope — local + LAN together in v1.** Cross-folder *and* cross-Mac ship together.
+4. **Ambiguous folder — the calling agent decides.** `teleport_list` returns candidates;
+   the MCP agent picks and calls `teleport` with the chosen `session`. No server-side guessing.
+5. **Discovery — mDNS/Bonjour.** Advertise/browse `_restwalker._tcp` via `bonjour-service`
+   (pure-JS, no native build). A static peer list in settings remains as a fallback.

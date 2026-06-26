@@ -26,6 +26,8 @@ import systemPromptRoutes from './routes/system-prompt.js'
 import taskPromptsRoutes  from './routes/task-prompts.js'
 import utilityRoutes      from './routes/utility.js'
 import pluginRoutes       from './routes/plugins.js'
+import teleportRoutes     from './routes/teleport.js'
+import { startMdns, setLogger as setMdnsLogger } from './teleport-mdns.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PORT      = parseInt(process.env.PORT ?? '47290')
@@ -64,6 +66,7 @@ await app.register(fastifySwagger, {
       { name: 'task-prompts',  description: 'Versioned task prompt objects' },
       { name: 'utility',       description: 'Utility endpoints' },
       { name: 'plugins',       description: 'Plugin management' },
+      { name: 'teleport',      description: 'Cross-folder / cross-Mac conversation retrieval' },
     ],
   },
 })
@@ -91,6 +94,7 @@ await app.register(systemPromptRoutes)
 await app.register(taskPromptsRoutes)
 await app.register(utilityRoutes)
 await app.register(pluginRoutes)
+await app.register(teleportRoutes)
 
 // ── File watcher ───────────────────────────────────────────────────────────────
 
@@ -145,3 +149,12 @@ setWebhookLogger({ info: (s) => app.log.info(s), warn: (s) => app.log.warn(s) })
 plugins.register(webhookPlugin, { builtin: true })
 plugins.register(gbrainPlugin, { builtin: true })
 await plugins.loadPersistedExternal()
+
+// Teleport LAN discovery — opt-in. Cross-folder teleport works regardless; this
+// only advertises/browses the network when explicitly enabled.
+setMdnsLogger({ info: (s) => app.log.info(s), warn: (s) => app.log.warn(s) })
+if (db.getSettings().TELEPORT_NETWORK_ENABLED === '1') {
+  startMdns(PORT, process.env.npm_package_version ?? 'dev')
+} else {
+  app.log.info('[teleport] cross-folder enabled; network discovery off (TELEPORT_NETWORK_ENABLED=0)')
+}

@@ -285,6 +285,51 @@ server.tool(
   async () => text(await api('GET', '/projects')),
 )
 
+// ── Teleport ─────────────────────────────────────────────────────────────────
+
+server.tool(
+  'teleport',
+  'Pull the RAW recent Claude Code conversation from another folder (or another Mac on the LAN) into this session. Resolve `folder` by name/path; defaults to the most recent session in the window. Use teleport_list first if you need to choose among sessions.',
+  {
+    folder:  z.string().describe('Folder name, path, or substring of the source project'),
+    window:  z.string().optional().describe('Time window, e.g. 1h, 6h, 24h (default 6h)'),
+    session: z.string().optional().describe('Specific session id (else the most recent in the window)'),
+    full:    z.boolean().optional().describe('true = no per-item truncation of tool outputs'),
+    host:    z.string().optional().describe('Peer host/name from teleport_peers; omit for this machine'),
+  },
+  async ({ folder, window, session, full, host }) =>
+    text(await api('GET', '/teleport/conversation', undefined, {
+      folder, ...(window ? { window } : {}), ...(session ? { session } : {}),
+      ...(full ? { full: '1' } : {}), ...(host ? { host } : {}),
+    })),
+)
+
+server.tool(
+  'teleport_list',
+  'List Claude Code conversations in a folder within a time window (metadata only: session id, times, message count, first request) so you can pick one for teleport.',
+  {
+    folder: z.string().describe('Folder name, path, or substring'),
+    window: z.string().optional().describe('Time window, e.g. 1h, 6h, 24h (default 6h)'),
+    host:   z.string().optional().describe('Peer host/name; omit for this machine'),
+  },
+  async ({ folder, window, host }) =>
+    text(await api('GET', '/teleport/list', undefined, { folder, ...(window ? { window } : {}), ...(host ? { host } : {}) })),
+)
+
+server.tool(
+  'teleport_folders',
+  'List known Claude Code project folders (most-recent first) on this machine or a peer — use to discover what folders are teleportable.',
+  { host: z.string().optional().describe('Peer host/name; omit for this machine') },
+  async ({ host }) => text(await api('GET', '/teleport/folders', undefined, host ? { host } : undefined)),
+)
+
+server.tool(
+  'teleport_peers',
+  'List restwalker peers discovered on the local network (other Macs you can teleport conversations from)',
+  {},
+  async () => text(await api('GET', '/teleport/peers')),
+)
+
 // ── Settings ───────────────────────────────────────────────────────────────────
 
 server.tool(
