@@ -28,7 +28,8 @@ export class ClaudePrintLoop implements AgentLoop {
     const stderrBufs: string[] = []
 
     await new Promise<void>((resolve, reject) => {
-      const proc = spawn('claude', args, {
+      const claudeBin = process.env.CLAUDE_BIN ?? 'claude'
+      const proc = spawn(claudeBin, args, {
         cwd,
         env: { ...process.env },
         stdio: ['ignore', 'pipe', 'pipe'],
