@@ -8,6 +8,8 @@ Idle-time Claude task runner — a Mac background service that queues and runs C
 
 Runs as a LaunchAgent on port **47290** with a SQLite database, a dashboard UI, a REST API (OpenAPI 3.0), and an MCP server for Claude Code.
 
+![RestWalker dashboard](docs/screenshot-dashboard.png)
+
 ## How it works
 
 1. You add tasks to the queue (via dashboard, REST API, or MCP tools in Claude Code)
@@ -97,6 +99,8 @@ Stops the service, removes the LaunchAgent, and optionally deletes `~/.restwalke
 - Settings: all thresholds configurable without restart
 
 ## Task queue
+
+![Task queue](docs/screenshot-queue.png)
 
 Tasks have a description (the prompt), an optional working directory, model, provider, and schedule:
 
