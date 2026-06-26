@@ -471,6 +471,7 @@ app.get('/projects', {
   } catch { return { projects: [] } }
 
   return {
+    home: homedir(),
     projects: [...seen.entries()]
       .sort((a, b) => b[1] - a[1])
       .map(([cwd, ts]) => ({ cwd, last_active: new Date(ts).toISOString() }))

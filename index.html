@@ -214,7 +214,7 @@
       <div class="sub" id="card-weekly-sub"></div>
     </div>
     <div class="card">
-      <div class="label">Next Milestone</div>
+      <div class="label">Next Reset</div>
       <div class="value" id="card-next" style="font-size:18px;padding-top:4px">—</div>
       <div class="sub" id="card-next-sub"></div>
     </div>
@@ -857,7 +857,8 @@ async function loadProjects() {
   sel.innerHTML =
     `<option value="">— home dir (blank) —</option>` +
     projects.map(p => {
-      const label = p.cwd.replace('~/', '~/').replace('~', '~')
+      const home = data?.home ?? ''
+      const label = home ? p.cwd.replace(home + '/', '~/').replace(home, '~') : p.cwd
       return `<option value="${p.cwd}">${label}</option>`
     }).join('') +
     `<option value="__custom__">Other…</option>`
@@ -906,7 +907,7 @@ function scheduleChip(t) {
   if (!t.schedule || t.schedule === 'once') return ''
   const label = SCHEDULE_LABELS[t.schedule] || t.schedule
   if (t.status === 'scheduled' && t.next_run_at) {
-    return `<span style="font-size:10px;background:rgba(167,139,250,.15);color:#a78bfa;padding:1px 6px;border-radius:3px;margin-left:4px">${label} · runs ${qTimeSince(t.next_run_at)}</span>`
+    return `<span style="font-size:10px;background:rgba(167,139,250,.15);color:#a78bfa;padding:1px 6px;border-radius:3px;margin-left:4px">${label} · next run ${qTimeSince(t.next_run_at)}</span>`
   }
   return `<span style="font-size:10px;background:rgba(167,139,250,.15);color:#a78bfa;padding:1px 6px;border-radius:3px;margin-left:4px">${label}</span>`
 }
@@ -914,9 +915,16 @@ function scheduleChip(t) {
 function qTimeSince(iso) {
   if (!iso) return ''
   const d = (Date.now() - new Date(iso).getTime()) / 1000
+  if (d < 0) {
+    const f = -d
+    if (f < 3600) return `in ${Math.round(f/60)}m`
+    if (f < 86400) return `in ${Math.round(f/3600)}h`
+    return `in ${Math.round(f/86400)}d`
+  }
   if (d < 60) return `${Math.round(d)}s ago`
   if (d < 3600) return `${Math.round(d/60)}m ago`
-  return `${Math.round(d/3600)}h ago`
+  if (d < 86400) return `${Math.round(d/3600)}h ago`
+  return `${Math.round(d/86400)}d ago`
 }
 
 function qBadge(status) {

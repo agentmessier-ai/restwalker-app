@@ -9,22 +9,22 @@ Runs as a LaunchAgent on port **47290** with a SQLite database, a dashboard UI, 
 ## How it works
 
 1. You add tasks to the queue (via dashboard, REST API, or MCP tools in Claude Code)
-2. The gate checks live Claude usage from `api.anthropic.com`
-3. When usage is low and you're outside your coding window, tasks run automatically
+2. The gate checks live Claude usage from `api.anthropic.com` — Claude tracks your token spend in rolling 5-hour and weekly windows
+3. **All gates must be open simultaneously** for a task to run — coding window, 5h budget, and weekly budget
 4. Sessions are recorded; results, token counts, and transcripts are stored per task
 
 ### Budget gates (all configurable)
 
 | Gate | Default | Behaviour |
 |---|---|---|
-| Coding window | 9 AM – 6 PM | Always paused during active hours |
-| 5h usage | ≥ 75% | Pause to protect interactive budget |
+| Coding window | 9 AM – 6 PM | Paused during your work hours |
+| 5h rolling usage | ≥ 75% | Pause to protect your interactive budget |
 | Weekly ceiling | ≥ 65% | Pause background jobs |
 | Weekly hard stop | ≥ 90% | Hard stop regardless |
 
 ## Install
 
-**Requirements:** macOS, Node.js 20+, Claude Code CLI (must be logged in)
+**Requirements:** macOS, Node.js 20+, Claude Code CLI (`claude login` must have been run — restwalker reads your credentials from the macOS Keychain)
 
 ```bash
 git clone https://github.com/agentmessier-ai/restwalker.git
@@ -62,7 +62,7 @@ Stops the service, removes the LaunchAgent, and optionally deletes `~/.restwalke
 - Live gate status, 5h and weekly usage, next window
 - 48h trend chart with threshold overlays and coding-window shading
 - Task queue: add, paginate, expand rows to view session transcripts and reasoning blocks
-- Agent providers: configure which CLI runs tasks and with what arguments
+- Agent providers: configure which CLI runs tasks (a provider is a command template like `claude --print {{task}}`)
 - Settings: all thresholds configurable without restart
 
 ## Task queue
@@ -92,10 +92,11 @@ The MCP server (`node/mcp.ts`) exposes 17 tools for Claude Code via stdio transp
 | Discovery | `list_models`, `list_projects` |
 | Settings | `get_settings`, `update_settings` |
 
-Register manually if you skipped it during install:
+Register manually if you skipped it during install (replace `~/dev/restwalker` with your clone path):
 
 ```bash
-claude mcp add --scope user restwalker -- node /path/to/node_modules/.bin/tsx /path/to/node/mcp.ts
+claude mcp add --scope user restwalker -- \
+  node ~/dev/restwalker/node/node_modules/.bin/tsx ~/dev/restwalker/node/mcp.ts
 ```
 
 ## API
