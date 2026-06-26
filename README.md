@@ -325,4 +325,4 @@ Stops the service, removes the LaunchAgent, and optionally deletes `~/.restwalke
 ## Acknowledgements
 
 - [**ccstatusline**](https://github.com/sirmalloc/ccstatusline) — inspired the idea behind RestWalker.
-- [**pi**](https://github.com/earendil-works/pi) — RestWalker's artifact module is built on its artifact module.
+- [**pi**](https://github.com/earendil-works/pi) — its artifact module inspired RestWalker's approach to artifacts.
