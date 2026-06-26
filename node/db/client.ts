@@ -16,7 +16,7 @@ if (!existsSync(WORKSPACE_DIR)) mkdirSync(WORKSPACE_DIR, { recursive: true })
 
 const DB_PATH = process.env.RESTWALKER_DB ?? join(DATA_DIR, 'restwalker.db')
 
-export const CLAUDE_PROJECTS_DIR = join(homedir(), '.claude', 'projects')
+export const CLAUDE_PROJECTS_DIR = process.env.CLAUDE_PROJECTS_DIR ?? join(homedir(), '.claude', 'projects')
 
 export const client = new Database(DB_PATH)
 client.pragma('journal_mode = WAL')

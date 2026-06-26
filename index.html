@@ -555,6 +555,54 @@
       </div>
     </div>
 
+    <div class="settings-group">
+      <div class="settings-group-title">Teleport — cross-folder & cross-Mac conversations</div>
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Default window</div>
+          <div class="setting-hint">How far back teleport pulls by default (e.g. 1h, 6h, 24h)</div>
+        </div>
+        <input id="s-TELEPORT_DEFAULT_WINDOW" placeholder="6h" style="background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:5px 8px;font-size:12px;font-family:var(--mono);width:90px;text-align:right">
+      </div>
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Cross-Mac discovery</div>
+          <div class="setting-hint">Advertise on the LAN so paired Macs can teleport conversations. Trusted networks only. (Needs the daemon bound to 0.0.0.0.)</div>
+        </div>
+        <input type="checkbox" id="s-TELEPORT_NETWORK_ENABLED" onchange="toggleTeleportNet(this.checked)" style="width:15px;height:15px;cursor:pointer;accent-color:var(--blue)">
+      </div>
+      <div id="teleport-net-fields" style="display:none">
+        <div class="setting-row">
+          <div>
+            <div class="setting-label">Pairing token</div>
+            <div class="setting-hint">Shared secret — set the same value on each Mac. Never sent over the wire (HMAC-signed).</div>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <input id="s-TELEPORT_TOKEN" placeholder="(none)" style="background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:5px 8px;font-size:11px;font-family:var(--mono);width:180px">
+            <button onclick="genTeleportToken()" style="background:var(--blue);color:#fff;border:none;border-radius:4px;padding:4px 8px;font-size:11px;cursor:pointer;font-family:inherit">Generate</button>
+            <button onclick="copyTeleportToken()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:4px 8px;font-size:11px;cursor:pointer;font-family:inherit">Copy</button>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div>
+            <div class="setting-label">Static peers</div>
+            <div class="setting-hint">Macs not on mDNS (other subnet/VPN), comma-separated host[:port]</div>
+          </div>
+          <input id="s-TELEPORT_STATIC_PEERS" placeholder="10.0.0.50, macmini.local:47290" style="background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:5px 8px;font-size:11px;font-family:var(--mono);width:220px">
+        </div>
+        <div class="setting-row">
+          <div>
+            <div class="setting-label">Discovered peers</div>
+            <div class="setting-hint">Other restwalker Macs visible right now</div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
+            <div id="teleport-peers" style="font-size:11px;color:var(--muted);text-align:right">—</div>
+            <button onclick="loadTeleportPeers()" style="background:var(--bg);border:1px solid var(--border);color:var(--muted);border-radius:4px;padding:3px 8px;font-size:11px;cursor:pointer;font-family:inherit">Refresh</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="modal-footer">
       <span class="save-status" id="save-status">✓ Saved</span>
       <button class="btn btn-secondary" onclick="closeSettings()">Cancel</button>
@@ -1013,10 +1061,33 @@ function buildHourSelects() {
   });
 }
 
-const SETTING_KEYS = ['CODING_WINDOW_ENABLED','CODING_START_H','CODING_END_H','TIMEZONE','FIVE_HOUR_PAUSE_PCT','WEEKLY_RESERVE_PCT','WEEKLY_HARD_STOP_PCT','POLL_INTERVAL_MIN','CACHE_STALE_MIN','TASK_TIMEOUT_S'];
+const SETTING_KEYS = ['CODING_WINDOW_ENABLED','CODING_START_H','CODING_END_H','TIMEZONE','FIVE_HOUR_PAUSE_PCT','WEEKLY_RESERVE_PCT','WEEKLY_HARD_STOP_PCT','POLL_INTERVAL_MIN','CACHE_STALE_MIN','TASK_TIMEOUT_S','TELEPORT_DEFAULT_WINDOW','TELEPORT_NETWORK_ENABLED','TELEPORT_TOKEN','TELEPORT_STATIC_PEERS'];
 
 function toggleCodingWindow(enabled) {
   document.getElementById('coding-window-times').style.display = enabled ? 'block' : 'none';
+}
+
+// ── Teleport settings helpers ─────────────────────────────────────────────────
+function toggleTeleportNet(enabled) {
+  document.getElementById('teleport-net-fields').style.display = enabled ? 'block' : 'none';
+}
+function genTeleportToken() {
+  const b = new Uint8Array(24); crypto.getRandomValues(b);
+  document.getElementById('s-TELEPORT_TOKEN').value = Array.from(b, x => x.toString(16).padStart(2,'0')).join('');
+}
+function copyTeleportToken() {
+  const v = document.getElementById('s-TELEPORT_TOKEN').value;
+  if (v) navigator.clipboard?.writeText(v);
+}
+async function loadTeleportPeers() {
+  const el = document.getElementById('teleport-peers');
+  el.textContent = '…';
+  try {
+    const d = await fetch('/teleport/peers').then(r => r.json());
+    el.textContent = (d.peers && d.peers.length)
+      ? d.peers.map(p => `${p.name} (${p.host}:${p.port})`).join(', ')
+      : (d.enabled ? 'none found yet' : 'discovery off');
+  } catch { el.textContent = '—'; }
 }
 
 async function openSettings() {
@@ -1029,7 +1100,12 @@ async function openSettings() {
   for (const k of SETTING_KEYS) {
     const el = document.getElementById('s-'+k);
     if (!el) continue;
-    if (el.type === 'checkbox') { el.checked = cfg[k] === '1'; toggleCodingWindow(el.checked); continue; }
+    if (el.type === 'checkbox') {
+      el.checked = cfg[k] === '1';
+      if (k === 'CODING_WINDOW_ENABLED')    toggleCodingWindow(el.checked);
+      if (k === 'TELEPORT_NETWORK_ENABLED') { toggleTeleportNet(el.checked); if (el.checked) loadTeleportPeers(); }
+      continue;
+    }
     // TASK_TIMEOUT_S is stored in seconds — slider is also seconds, no conversion
     const displayVal = cfg[k] ?? '';
     el.value = String(displayVal);

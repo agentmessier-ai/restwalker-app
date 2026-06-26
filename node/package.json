@@ -6,7 +6,8 @@
   "main": "app.ts",
   "scripts": {
     "start": "tsx app.ts",
-    "dev": "tsx watch app.ts"
+    "dev": "tsx watch app.ts",
+    "test": "node --import tsx --test test/*.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.106.0",

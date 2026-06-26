@@ -41,19 +41,42 @@ committed on `feature/teleport`** — not yet pushed / merged to `develop`.
 | 8 | LAN discovery — mDNS advertise + browse `_restwalker._tcp` | ✅ done | `node/teleport-mdns.ts` |
 | 9 | Cross-Mac pull via `host` param (proxy to a discovered peer) | ✅ done | `node/routes/teleport.ts` |
 | 10 | Security — localhost bypass, **HMAC** auth, **SSRF guard** (discovered-peers-only), read-only | ✅ done | `node/routes/teleport.ts` |
-| 11 | Dashboard UI config / pairing panel | ⬜ deferred | — (decided: MCP/env-configured; add only if cross-Mac pairing proves fiddly) |
-| 12 | Static peer-list fallback (non-mDNS peers) | ⬜ not started | settings |
-| 13 | TLS / cert-pinning for the response channel | ⬜ future | hardening |
-| 14 | Smarter slicing (semantic relevance, not just time) | ⬜ future (Phase 3) | — |
-| 15 | "Inject teleported context as a queued restwalker task" mode | ⬜ future (Phase 3) | — |
-| 16 | Multi-session merge | ⬜ future (Phase 3) | — |
-| 17 | Automated tests | ⬜ not started | (repo has none today; CI does audit + typecheck + boot smoke) |
+| 11 | Dashboard UI config / pairing panel (Settings → Teleport) | ✅ done | `index.html` |
+| 12 | Static peer-list fallback (non-mDNS peers) | ✅ done | `TELEPORT_STATIC_PEERS`, `routes/teleport.ts` |
+| 13 | TLS / cert-pinning for the response channel | ⛔ deferred | hardening — see note |
+| 14 | Smarter slicing (semantic relevance, not just time) | ⛔ deferred | Phase 3 — see note |
+| 15 | "Inject teleported context as a queued restwalker task" mode | ⛔ deferred | Phase 3 — see note |
+| 16 | Multi-session merge | ⛔ deferred | Phase 3 — see note |
+| 17 | Automated tests (teleport core) | ✅ done | `node/test/teleport.test.ts` (6 tests) |
 
-Legend: ✅ done · ⬜ not started / deferred / future.
+Legend: ✅ done · ⛔ deliberately deferred.
 
 **Verified working:** 36 folders discovered; `restwalker` → 11 conversations; 1h pull →
 60 raw turns; security gate (local 200 / no-sig 401 / valid-HMAC 200 / stale 401 /
-wrong 401); SSRF `host=attacker` → 400; mDNS discovered a real peer Mac on the LAN.
+wrong 401); SSRF `host=attacker` → 400; mDNS discovered a real peer Mac on the LAN;
+UI pairing panel (toggle reveals fields, token generate/copy, live peer list); 6/6
+unit tests pass; typecheck + audit clean.
+
+### Why 13–16 are deferred (not built)
+
+These are intentionally left out of v1 — building them now would be speculative or
+disproportionate:
+
+- **13 TLS / cert-pinning** — HMAC already authenticates and keeps the token off the
+  wire. Full TLS with self-signed cert generation + mDNS fingerprint pinning + rotation
+  is a large amount of machinery for a feature that's already gated to *trusted LANs*.
+  The residual (plaintext response body) is documented; pinning is a real future option,
+  not a v1 need.
+- **14 semantic slicing** — needs an embedding model + relevance ranking; that's its own
+  design (which model, where it runs, cost). Time-window slicing covers the actual use
+  case ("what I just did in X").
+- **15 inject-as-task** — a different workflow (seed a queued task) from teleport's core
+  job (pull context into the *current* session). Worth a small follow-up if wanted, but
+  it's a product decision, not part of finishing teleport.
+- **16 multi-session merge** — fuzzy value; the agent can already call `teleport` per
+  session. Revisit only if single-session pulls prove insufficient in practice.
+
+Any of these can be picked up as a scoped follow-up on request.
 
 ## Non-goals (v1)
 

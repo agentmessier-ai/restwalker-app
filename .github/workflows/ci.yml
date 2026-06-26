@@ -27,6 +27,10 @@ jobs:
         working-directory: node
         run: npx tsc --noEmit
 
+      - name: Unit tests
+        working-directory: node
+        run: npm test
+
       - name: Boot smoke test
         working-directory: node
         run: |

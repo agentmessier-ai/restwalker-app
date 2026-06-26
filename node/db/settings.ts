@@ -34,6 +34,9 @@ export const SETTING_DEFAULTS: Settings = {
   TELEPORT_NETWORK_ENABLED: process.env.TELEPORT_NETWORK_ENABLED ?? '0',
   TELEPORT_TOKEN:           process.env.TELEPORT_TOKEN           ?? '',
   TELEPORT_DEFAULT_WINDOW:  process.env.TELEPORT_DEFAULT_WINDOW  ?? '6h',
+  // Comma-separated peers not discoverable via mDNS (different subnet/VPN), as
+  // host[:port]. An explicit operator allowlist — still SSRF-safe.
+  TELEPORT_STATIC_PEERS:    process.env.TELEPORT_STATIC_PEERS    ?? '',
 }
 
 // ── Settings repository ────────────────────────────────────────────────────────

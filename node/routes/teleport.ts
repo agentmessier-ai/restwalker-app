@@ -3,8 +3,26 @@ import { hostname } from 'os'
 import { createHmac, timingSafeEqual } from 'crypto'
 import * as db from '../db.js'
 import { parseWindow, listProjectFolders, listConversations, getRawConversation } from '../teleport.js'
-import { getPeers } from '../teleport-mdns.js'
+import { getPeers, type Peer } from '../teleport-mdns.js'
 import { S } from './schemas.js'
+
+// Operator-configured peers (mDNS can't cross subnets/VPN). An explicit allowlist.
+function staticPeers(): Peer[] {
+  return (db.getSettings().TELEPORT_STATIC_PEERS ?? '')
+    .split(',').map(s => s.trim()).filter(Boolean)
+    .map(entry => {
+      const [h, port] = entry.split(':')
+      return { name: h, host: h, port: parseInt(port || process.env.PORT || '47290'), addresses: [h] }
+    })
+}
+function knownPeers(): Peer[] {
+  const seen = new Set<string>(); const all: Peer[] = []
+  for (const p of [...getPeers(), ...staticPeers()]) {
+    const key = `${p.host}:${p.port}`
+    if (!seen.has(key)) { seen.add(key); all.push(p) }
+  }
+  return all
+}
 
 function isLocalReq(req: FastifyRequest): boolean {
   const ip = req.ip
@@ -29,8 +47,8 @@ const SIG_SKEW_MS = 300_000   // ±5 min replay window
 function resolvePeer(host?: string): { base: string } | null {
   const me = hostname()
   if (!host || host === 'local' || host === 'localhost' || host === me) return null
-  const peer = getPeers().find(p => p.name === host || p.host === host || p.addresses.includes(host))
-  if (!peer) throw Object.assign(new Error(`unknown teleport peer "${host}" (not discovered on the LAN)`), { statusCode: 400 })
+  const peer = knownPeers().find(p => p.name === host || p.host === host || p.addresses.includes(host))
+  if (!peer) throw Object.assign(new Error(`unknown teleport peer "${host}" (not discovered on the LAN or in TELEPORT_STATIC_PEERS)`), { statusCode: 400 })
   return { base: `http://${peer.host}:${peer.port}` }
 }
 
@@ -137,5 +155,5 @@ export default async function teleportRoutes(app: FastifyInstance) {
         peers: { type: 'array', items: { type: 'object', properties: {
           name: { type: 'string' }, host: { type: 'string' }, port: { type: 'integer' }, version: { type: 'string' } } } } } } },
     },
-  }, async () => ({ enabled: db.getSettings().TELEPORT_NETWORK_ENABLED === '1', peers: getPeers() }))
+  }, async () => ({ enabled: db.getSettings().TELEPORT_NETWORK_ENABLED === '1', peers: knownPeers() }))
 }
