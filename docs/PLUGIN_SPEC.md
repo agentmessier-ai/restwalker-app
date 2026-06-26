@@ -10,6 +10,24 @@ A restwalker plugin is a JS/TS file that registers handlers on lifecycle hooks. 
 
 ---
 
+## Design principle: API-first
+
+restwalker is built API-first. Every capability is defined once at the API/declaration layer, and every other surface — UI form, REST endpoint, MCP tool — is *derived* from it. You never hand-write the same field twice.
+
+This shows up in two places that matter to plugin authors:
+
+1. **Host task fields flow API → UI → MCP automatically.** A task field (e.g. `webhook_pre_url`) is declared once in its Fastify route schema. The OpenAPI spec at `/docs/json` is the single source of truth; the web form reads it, and the MCP `queue_add` tool derives its input schema from it at startup. Add a field to the route and it appears in all three surfaces with no further edits.
+
+2. **A plugin's `settings` declaration is itself the single source.** You declare each field once in `settings`. From that one declaration the host derives:
+   - the **form** rendered in the Plugins panel (input type inferred from the default's type),
+   - the **persisted shape** in `~/.restwalker/plugins.json`,
+   - the **config object** passed into `register(ctx, config)`,
+   - the **`POST /plugins/:name/config`** request body.
+
+So when you write a plugin, declare capability and config *once* in the plugin object. Do not build your own form, your own storage schema, and your own config parser — the host derives all of them from your declaration. If you find yourself writing a field name more than once, you're fighting the grain.
+
+---
+
 ## Plugin shape
 
 ```typescript
@@ -106,7 +124,16 @@ settings: {
 
 Values are stored in `~/.restwalker/plugins.json` and passed as the second argument to `register()`. The host merges stored values with defaults at load time — new fields in `settings` appear with their default until the user saves.
 
-Via API: `POST /plugins/:name/config` with `{ key: value }` (partial updates are fine).
+This `settings` block is the **single source** for the whole config surface (see [Design principle: API-first](#design-principle-api-first)). The form, the storage, the `config` argument, and the config endpoint all derive from it:
+
+```
+settings declaration ──┬──▶ Plugins-panel form
+                       ├──▶ ~/.restwalker/plugins.json
+                       ├──▶ register(ctx, config)
+                       └──▶ POST /plugins/:name/config
+```
+
+Via API: `POST /plugins/:name/config` with `{ key: value }` (partial updates are fine). The accepted keys are exactly the keys you declared in `settings` — nothing to register separately.
 
 ---
 
