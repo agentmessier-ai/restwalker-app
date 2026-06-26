@@ -1438,12 +1438,17 @@ function renderTaskDetail(t, hasSession) {
         <div style="display:flex;flex-wrap:wrap;gap:6px">`
       for (const a of artifactCached.artifacts) {
         const icon = artifactIcon(a.mime_type)
-        html += `<button onclick="openArtifactViewer(${a.id},'${escHtml(a.path.split('/').pop())}','${escHtml(a.mime_type)}')"
-          style="display:flex;align-items:center;gap:5px;background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.25);color:#a5b4fc;border-radius:5px;padding:4px 10px;font-size:11px;cursor:pointer;font-family:inherit"
-          title="${escHtml(a.description || a.path)}">
-          ${icon} ${escHtml(a.path.split('/').pop())}
-          <span style="color:rgba(165,180,252,.5);font-size:10px">${fmtBytes(a.size)}</span>
-        </button>`
+        html += `<div style="display:flex;align-items:stretch">
+          <button onclick="openArtifactViewer(${a.id},'${escHtml(a.path.split('/').pop())}','${escHtml(a.mime_type)}')"
+            style="display:flex;align-items:center;gap:5px;background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.25);border-right:none;color:#a5b4fc;border-radius:5px 0 0 5px;padding:4px 10px;font-size:11px;cursor:pointer;font-family:inherit"
+            title="${escHtml(a.description || a.path)}">
+            ${icon} ${escHtml(a.path.split('/').pop())}
+            <span style="color:rgba(165,180,252,.5);font-size:10px">${fmtBytes(a.size)}</span>
+          </button>
+          <button onclick="revealArtifact('${escHtml(a.path)}')"
+            style="display:flex;align-items:center;background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.25);color:#a5b4fc;border-radius:0 5px 5px 0;padding:4px 8px;font-size:11px;cursor:pointer;font-family:inherit"
+            title="Reveal in Finder">📁</button>
+        </div>`
       }
       html += `</div></div>`
     }
@@ -1550,6 +1555,9 @@ function closeArtifactViewer() {
 async function openWorkspaceFolder() { await openFolder(null) }
 async function openFolder(path) {
   await fetch('/open-folder', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ path }) }).catch(()=>{})
+}
+async function revealArtifact(path) {
+  await fetch('/open-folder', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ path, reveal: true }) }).catch(()=>{})
 }
 async function openLogsFolder() {
   const meta = await fetch('/meta').then(r => r.json()).catch(() => null)
