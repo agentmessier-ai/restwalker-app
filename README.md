@@ -92,8 +92,6 @@ dashboard on the new one).
 
 ## Task queue
 
-![Task queue](docs/screenshot-queue.png)
-
 Tasks have a description (the prompt), an optional working directory, model, provider, and schedule:
 
 | Schedule | Behaviour |
