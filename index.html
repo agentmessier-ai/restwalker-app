@@ -182,6 +182,7 @@
     <div style="display:flex;gap:6px;margin-left:8px;align-items:center">
       <button id="tab-dash" onclick="switchTab('dash')" style="background:var(--accent);color:white;border:none;border-radius:6px;padding:5px 10px;cursor:pointer;font-family:inherit;font-size:12px">Dashboard</button>
       <button id="tab-queue" onclick="switchTab('queue')" style="background:var(--blue);color:white;border:none;border-radius:6px;padding:6px 14px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;letter-spacing:0.01em">⚡ Queue</button>
+      <button onclick="openPlugins()" style="background:#7c3aed;color:white;border:none;border-radius:6px;padding:6px 13px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;letter-spacing:0.01em">🧩 Plugins</button>
     </div>
     <button onclick="openLogsFolder()" style="background:var(--bg);border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;font-family:inherit">Logs</button>
     <a href="/docs" target="_blank" style="background:var(--bg);border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:6px 12px;font-size:12px;text-decoration:none;font-family:inherit">API Docs</a>
@@ -473,6 +474,16 @@
         <div class="slider-wrap">
           <input type="range" min="5" max="120" id="s-CACHE_STALE_MIN" oninput="document.getElementById('v-CACHE_STALE_MIN').textContent=this.value+'m'">
           <span class="slider-val" id="v-CACHE_STALE_MIN">30m</span>
+        </div>
+      </div>
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Task spawn timeout</div>
+          <div class="setting-hint">Kill the agent process if it runs longer than this (SIGTERM → 5s → SIGKILL)</div>
+        </div>
+        <div class="slider-wrap">
+          <input type="range" min="1" max="120" id="s-TASK_TIMEOUT_MS" oninput="document.getElementById('v-TASK_TIMEOUT_MS').textContent=this.value+'m'" step="1">
+          <span class="slider-val" id="v-TASK_TIMEOUT_MS">10m</span>
         </div>
       </div>
     </div>
@@ -826,7 +837,7 @@ function buildHourSelects() {
   });
 }
 
-const SETTING_KEYS = ['CODING_WINDOW_ENABLED','CODING_START_H','CODING_END_H','TIMEZONE','FIVE_HOUR_PAUSE_PCT','WEEKLY_RESERVE_PCT','WEEKLY_HARD_STOP_PCT','POLL_INTERVAL_MIN','CACHE_STALE_MIN'];
+const SETTING_KEYS = ['CODING_WINDOW_ENABLED','CODING_START_H','CODING_END_H','TIMEZONE','FIVE_HOUR_PAUSE_PCT','WEEKLY_RESERVE_PCT','WEEKLY_HARD_STOP_PCT','POLL_INTERVAL_MIN','CACHE_STALE_MIN','TASK_TIMEOUT_MS'];
 
 function toggleCodingWindow(enabled) {
   document.getElementById('coding-window-times').style.display = enabled ? 'block' : 'none';
@@ -838,14 +849,16 @@ async function openSettings() {
   const res = await fetch('/settings');
   const cfg = await res.json();
   buildTimezoneSelect(cfg.TIMEZONE ?? 'America/Los_Angeles');
-  const SLIDER_KEYS = { FIVE_HOUR_PAUSE_PCT:'%', WEEKLY_RESERVE_PCT:'%', WEEKLY_HARD_STOP_PCT:'%', POLL_INTERVAL_MIN:'m', CACHE_STALE_MIN:'m' }
+  const SLIDER_KEYS = { FIVE_HOUR_PAUSE_PCT:'%', WEEKLY_RESERVE_PCT:'%', WEEKLY_HARD_STOP_PCT:'%', POLL_INTERVAL_MIN:'m', CACHE_STALE_MIN:'m', TASK_TIMEOUT_MS:'m' }
   for (const k of SETTING_KEYS) {
     const el = document.getElementById('s-'+k);
     if (!el) continue;
     if (el.type === 'checkbox') { el.checked = cfg[k] === '1'; toggleCodingWindow(el.checked); continue; }
-    el.value = cfg[k] ?? '';
+    // TASK_TIMEOUT_MS is stored in ms, slider is in minutes
+    const displayVal = k === 'TASK_TIMEOUT_MS' ? Math.round(parseInt(cfg[k] ?? '600000') / 60000) : cfg[k] ?? '';
+    el.value = String(displayVal);
     const vEl = document.getElementById('v-'+k);
-    if (vEl && SLIDER_KEYS[k]) vEl.textContent = (cfg[k] ?? '') + SLIDER_KEYS[k];
+    if (vEl && SLIDER_KEYS[k]) vEl.textContent = displayVal + SLIDER_KEYS[k];
     updateSliderTrack(el);
   }
   document.getElementById('save-status').style.display = 'none';
@@ -968,7 +981,9 @@ async function saveSettings() {
   for (const k of SETTING_KEYS) {
     const el = document.getElementById('s-'+k);
     if (!el) continue;
-    body[k] = el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value;
+    if (el.type === 'checkbox') { body[k] = el.checked ? '1' : '0'; continue; }
+    // TASK_TIMEOUT_MS slider is in minutes — convert back to ms
+    body[k] = k === 'TASK_TIMEOUT_MS' ? String(parseInt(el.value) * 60000) : el.value;
   }
   const res = await fetch('/settings', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
   if (res.ok) {
@@ -1748,6 +1763,102 @@ async function copyMcpInstall() {
 document.getElementById('mcp-modal').addEventListener('click', e => {
   if (e.target === e.currentTarget) closeMcpInstall()
 })
+
+// ── Plugins panel ─────────────────────────────────────────────────────────────
+
+async function openPlugins() {
+  document.getElementById('plugins-panel').style.display = 'flex'
+  await loadPlugins()
+}
+
+function closePlugins() {
+  document.getElementById('plugins-panel').style.display = 'none'
+}
+
+async function loadPlugins() {
+  const res = await fetch('/plugins')
+  const { plugins } = await res.json()
+  const list = document.getElementById('plugins-list')
+  list.innerHTML = ''
+  for (const p of plugins) {
+    const card = document.createElement('div')
+    card.style.cssText = 'background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:14px 16px'
+    const hookBadges = p.hooks.map(h =>
+      `<span style="background:var(--card);border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-size:10px;color:var(--muted)">${h}</span>`
+    ).join(' ')
+    const errorBadge = p.error
+      ? `<div style="color:#ef4444;font-size:11px;margin-top:6px">⚠ ${p.error}</div>`
+      : ''
+    const builtinBadge = p.builtin
+      ? `<span style="background:#1e3a5f;color:#60a5fa;border-radius:4px;padding:1px 6px;font-size:10px">built-in</span>`
+      : p.openclaw
+        ? `<span style="background:#2d1a4e;color:#a78bfa;border-radius:4px;padding:1px 6px;font-size:10px">🔌 openclaw</span>`
+        : `<span style="background:#1a3a2a;color:#4ade80;border-radius:4px;padding:1px 6px;font-size:10px">external</span>`
+    const pathHint = p.path ? `<div style="font-size:10px;color:var(--muted);margin-top:4px;word-break:break-all">${p.path}</div>` : ''
+    card.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+            <span style="font-weight:600;font-size:13px">${p.name}</span>
+            ${builtinBadge}
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px">${hookBadges || '<span style="font-size:11px;color:var(--muted)">no hooks</span>'}</div>
+          ${pathHint}
+          ${errorBadge}
+        </div>
+        <label style="display:flex;align-items:center;cursor:pointer;flex-shrink:0">
+          <input type="checkbox" ${p.enabled ? 'checked' : ''} onchange="togglePlugin('${p.name}', this.checked)"
+            style="width:36px;height:20px;cursor:pointer;accent-color:var(--blue)">
+        </label>
+      </div>
+    `
+    list.appendChild(card)
+  }
+}
+
+async function togglePlugin(name, enabled) {
+  await fetch(`/plugins/${encodeURIComponent(name)}/${enabled ? 'enable' : 'disable'}`, { method: 'POST' })
+}
+
+async function installPlugin() {
+  const path = document.getElementById('plugin-path-input').value.trim()
+  const errEl = document.getElementById('plugin-install-error')
+  errEl.style.display = 'none'
+  if (!path) return
+  const res = await fetch('/plugins/install', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  })
+  if (res.ok) {
+    document.getElementById('plugin-path-input').value = ''
+    await loadPlugins()
+  } else {
+    const { error } = await res.json()
+    errEl.textContent = error
+    errEl.style.display = 'block'
+  }
+}
+
+async function installOpenClawPlugin() {
+  const path = document.getElementById('oc-path-input').value.trim()
+  const errEl = document.getElementById('oc-install-error')
+  errEl.style.display = 'none'
+  if (!path) return
+  const res = await fetch('/plugins/install-openclaw', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  })
+  if (res.ok) {
+    document.getElementById('oc-path-input').value = ''
+    await loadPlugins()
+  } else {
+    const { error } = await res.json()
+    errEl.textContent = error
+    errEl.style.display = 'block'
+  }
+}
 </script>
 
 <!-- Requeue panel -->
@@ -1804,6 +1915,37 @@ document.getElementById('mcp-modal').addEventListener('click', e => {
       <button onclick="copyMcpInstall()" id="mcp-copy-btn" style="position:absolute;top:8px;right:8px;background:var(--card);border:1px solid var(--border);color:var(--muted);border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer;font-family:inherit">Copy</button>
     </div>
     <p style="font-size:11px;color:var(--muted);margin:12px 0 0">After running, restart Claude Code or reload MCP servers. The server exposes 23 tools for managing the task queue from within Claude Code.</p>
+  </div>
+</div>
+
+<!-- Plugins panel -->
+<div id="plugins-panel" style="position:fixed;top:0;right:0;width:420px;height:100vh;background:var(--card);border-left:1px solid var(--border);display:none;flex-direction:column;z-index:200;overflow:hidden">
+  <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+    <div style="font-weight:600;font-size:14px">Plugins</div>
+    <button onclick="closePlugins()" style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:0">×</button>
+  </div>
+  <div id="plugins-list" style="flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:12px"></div>
+  <div style="padding:12px 20px 16px;border-top:1px solid var(--border)">
+    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Install external plugin</div>
+    <div style="display:flex;gap:8px">
+      <input id="plugin-path-input" type="text" placeholder="/path/to/plugin.js" style="flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:12px;font-family:inherit">
+      <button onclick="installPlugin()" style="padding:7px 14px;background:var(--blue);color:#fff;border:none;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit">Load</button>
+    </div>
+    <div id="plugin-install-error" style="color:#ef4444;font-size:11px;margin-top:6px;display:none"></div>
+  </div>
+  <div style="padding:12px 20px 16px;border-top:1px solid var(--border)">
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+      <span style="font-size:11px;font-weight:600;color:#7c3aed">🔌 OpenClaw plugin</span>
+      <span style="font-size:10px;color:var(--muted)">npm package name or local path</span>
+    </div>
+    <div style="display:flex;gap:8px">
+      <input id="oc-path-input" type="text" placeholder="openclaw-plugin-name or /path/to/plugin" style="flex:1;padding:7px 10px;border:1px solid #7c3aed44;border-radius:6px;background:var(--bg);color:var(--text);font-size:12px;font-family:inherit">
+      <button onclick="installOpenClawPlugin()" style="padding:7px 14px;background:#7c3aed;color:#fff;border:none;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit">Load</button>
+    </div>
+    <div id="oc-install-error" style="color:#ef4444;font-size:11px;margin-top:6px;display:none"></div>
+    <div style="margin-top:8px;font-size:10px;color:var(--muted)">
+      Hook mapping: before_agent_run → pre_task · agent_end → post_task · after_tool_call → on_artifact
+    </div>
   </div>
 </div>
 
