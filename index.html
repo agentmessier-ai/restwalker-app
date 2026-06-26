@@ -1791,9 +1791,7 @@ async function loadPlugins() {
       : ''
     const builtinBadge = p.builtin
       ? `<span style="background:#1e3a5f;color:#60a5fa;border-radius:4px;padding:1px 6px;font-size:10px">built-in</span>`
-      : p.openclaw
-        ? `<span style="background:#2d1a4e;color:#a78bfa;border-radius:4px;padding:1px 6px;font-size:10px">🔌 openclaw</span>`
-        : `<span style="background:#1a3a2a;color:#4ade80;border-radius:4px;padding:1px 6px;font-size:10px">external</span>`
+      : `<span style="background:#1a3a2a;color:#4ade80;border-radius:4px;padding:1px 6px;font-size:10px">external</span>`
     const pathHint = p.path ? `<div style="font-size:10px;color:var(--muted);margin-top:4px;word-break:break-all">${p.path}</div>` : ''
     card.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
@@ -1840,25 +1838,6 @@ async function installPlugin() {
   }
 }
 
-async function installOpenClawPlugin() {
-  const path = document.getElementById('oc-path-input').value.trim()
-  const errEl = document.getElementById('oc-install-error')
-  errEl.style.display = 'none'
-  if (!path) return
-  const res = await fetch('/plugins/install-openclaw', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path }),
-  })
-  if (res.ok) {
-    document.getElementById('oc-path-input').value = ''
-    await loadPlugins()
-  } else {
-    const { error } = await res.json()
-    errEl.textContent = error
-    errEl.style.display = 'block'
-  }
-}
 </script>
 
 <!-- Requeue panel -->
@@ -1932,20 +1911,6 @@ async function installOpenClawPlugin() {
       <button onclick="installPlugin()" style="padding:7px 14px;background:var(--blue);color:#fff;border:none;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit">Load</button>
     </div>
     <div id="plugin-install-error" style="color:#ef4444;font-size:11px;margin-top:6px;display:none"></div>
-  </div>
-  <div style="padding:12px 20px 16px;border-top:1px solid var(--border)">
-    <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
-      <span style="font-size:11px;font-weight:600;color:#7c3aed">🔌 OpenClaw plugin</span>
-      <span style="font-size:10px;color:var(--muted)">npm package name or local path</span>
-    </div>
-    <div style="display:flex;gap:8px">
-      <input id="oc-path-input" type="text" placeholder="openclaw-plugin-name or /path/to/plugin" style="flex:1;padding:7px 10px;border:1px solid #7c3aed44;border-radius:6px;background:var(--bg);color:var(--text);font-size:12px;font-family:inherit">
-      <button onclick="installOpenClawPlugin()" style="padding:7px 14px;background:#7c3aed;color:#fff;border:none;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit">Load</button>
-    </div>
-    <div id="oc-install-error" style="color:#ef4444;font-size:11px;margin-top:6px;display:none"></div>
-    <div style="margin-top:8px;font-size:10px;color:var(--muted)">
-      Hook mapping: before_agent_run → pre_task · agent_end → post_task · after_tool_call → on_artifact
-    </div>
   </div>
 </div>
 
