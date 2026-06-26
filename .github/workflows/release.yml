@@ -1,0 +1,58 @@
+name: Release
+
+# A push to master publishes to npm — but only when package.json's version is
+# not already on the registry. Docs/CI commits to master are therefore no-ops.
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: write   # create the git tag + GitHub Release
+
+jobs:
+  release:
+    runs-on: [self-hosted, restwalker]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: v
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Is this version already published?
+        id: pub
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          if npm view "@agentmessier/restwalker@${VERSION}" version >/dev/null 2>&1; then
+            echo "exists=true"  >> "$GITHUB_OUTPUT"
+            echo "v${VERSION} already on npm — skipping release."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "v${VERSION} is new — will publish."
+          fi
+
+      - name: Publish to npm
+        if: steps.pub.outputs.exists == 'false'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          printf '//registry.npmjs.org/:_authToken=%s\n' "$NODE_AUTH_TOKEN" > ~/.npmrc
+          npm publish --access public
+          rm -f ~/.npmrc
+
+      - name: Tag + GitHub Release
+        if: steps.pub.outputs.exists == 'false'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.v.outputs.version }}
+          SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          curl -sf -X POST \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${REPO}/releases" \
+            -d "$(node -e 'console.log(JSON.stringify({tag_name:"v"+process.env.VERSION,target_commitish:process.env.SHA,name:"v"+process.env.VERSION,generate_release_notes:true}))')"

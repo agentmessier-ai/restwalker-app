@@ -1,0 +1,46 @@
+name: CI
+
+# Runs on the self-hosted runner (epyc2) for active development branches and PRs.
+on:
+  push:
+    branches: [develop, 'feature/**']
+  pull_request:
+    branches: [develop, master]
+
+jobs:
+  build:
+    # Never run untrusted fork PRs on the self-hosted runner — only same-repo refs.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, restwalker]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        working-directory: node
+        run: npm ci
+
+      - name: Security audit (fail on high or critical)
+        working-directory: node
+        run: npm audit --audit-level=high
+
+      - name: Typecheck
+        working-directory: node
+        run: npx tsc --noEmit
+
+      - name: Boot smoke test
+        working-directory: node
+        run: |
+          set -e
+          TMP=$(mktemp -d)
+          RESTWALKER_DB="$TMP/rw.db" RESTWALKER_LOG="$TMP/rw.log" \
+          PORT=47999 HOST=127.0.0.1 CLAUDE_USAGE_CACHE="$TMP/usage.json" \
+            node_modules/.bin/tsx app.ts & PID=$!
+          ok=0
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:47999/healthz >/dev/null; then ok=1; break; fi
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:47999/queue/stats >/dev/null || ok=0
+          kill $PID 2>/dev/null || true
+          rm -rf "$TMP"
+          test "$ok" = 1 || { echo "daemon failed to boot/serve"; exit 1; }
