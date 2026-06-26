@@ -9,7 +9,7 @@ Runs as a LaunchAgent on port **47290** with a SQLite database, a dashboard UI, 
 ## How it works
 
 1. You add tasks to the queue (via dashboard, REST API, or MCP tools in Claude Code)
-2. The gate checks live Claude usage from `api.anthropic.com` — same source as `ccstatusline`
+2. The gate checks live Claude usage from `api.anthropic.com`
 3. When usage is low and you're outside your coding window, tasks run automatically
 4. Sessions are recorded; results, token counts, and transcripts are stored per task
 
@@ -17,7 +17,7 @@ Runs as a LaunchAgent on port **47290** with a SQLite database, a dashboard UI, 
 
 | Gate | Default | Behaviour |
 |---|---|---|
-| Coding window | 4 PM – 2 AM | Always paused during active hours |
+| Coding window | 9 AM – 6 PM | Always paused during active hours |
 | 5h usage | ≥ 75% | Pause to protect interactive budget |
 | Weekly ceiling | ≥ 65% | Pause background jobs |
 | Weekly hard stop | ≥ 90% | Hard stop regardless |

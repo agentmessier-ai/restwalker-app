@@ -56,8 +56,8 @@ export interface Snapshot {
 }
 
 export const SETTING_DEFAULTS: Settings = {
-  CODING_START_H:       process.env.CODING_START_H        ?? '16',
-  CODING_END_H:         process.env.CODING_END_H          ?? '2',
+  CODING_START_H:       process.env.CODING_START_H        ?? '9',
+  CODING_END_H:         process.env.CODING_END_H          ?? '18',
   TIMEZONE:             process.env.TIMEZONE              ?? 'America/Los_Angeles',
   FIVE_HOUR_PAUSE_PCT:  process.env.FIVE_HOUR_PAUSE_PCT   ?? '75',
   WEEKLY_RESERVE_PCT:   process.env.WEEKLY_RESERVE_PCT    ?? '35',
