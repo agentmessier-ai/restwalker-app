@@ -1,5 +1,5 @@
 ---
-name: schedule-dream-journal
+name: dream-journal
 description: Set up RestWalker's nightly "Dream Journal" — a daily task that reflects on the last 24h of Claude Code conversations, distills reusable skills, scans the web + GitHub trending for better practices, and writes a markdown report. Use when the user says "set up my dream journal", "schedule the nightly reflection", "have restwalker review my day", or wants a recurring self-improvement task.
 allowed-tools: mcp__plugin_restwalker_restwalker__queue_add mcp__plugin_restwalker_restwalker__queue_list mcp__restwalker__queue_add mcp__restwalker__queue_list
 ---

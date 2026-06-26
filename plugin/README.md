@@ -34,10 +34,10 @@ enabled. If RestWalker isn't connected, the skills will tell you.
 
 | Skill | Say something like | What it does |
 |---|---|---|
-| **`/restwalker:queue-task`** | "queue this for tonight", "have restwalker refactor X overnight" | Turns the work into a self-contained prompt and calls `queue_add`. |
-| **`/restwalker:queue-status`** | "what's in my restwalker queue", "how much budget left" | `queue_stats` + `queue_list` + `status` — what's queued/running, recent results, budget, next idle window. |
-| **`/restwalker:task-result`** | "what did last night's task produce", "show the dream journal" | `queue_get` + `queue_artifacts` (+ `queue_session`) — the outcome and its output files. |
-| **`/restwalker:schedule-dream-journal`** | "set up my nightly dream journal" | Schedules the daily self-improvement task (distill skills + best-practice scan → report). |
+| **`/restwalker:defer`** | "do this tonight", "defer this", "have restwalker refactor X overnight" | Turns the work into a self-contained prompt and calls `queue_add`. |
+| **`/restwalker:status`** | "restwalker status", "what's in my queue", "how much budget left" | `queue_stats` + `queue_list` + `status` — what's queued/running, recent results, budget, next idle window. |
+| **`/restwalker:result`** | "what did last night's task produce", "show the dream journal" | `queue_get` + `queue_artifacts` (+ `queue_session`) — the outcome and its output files. |
+| **`/restwalker:dream-journal`** | "set up my nightly dream journal" | Schedules the daily self-improvement task (distill skills + best-practice scan → report). |
 
 All four auto-trigger from natural language (no need to type the `/` form) — the descriptions
 are written so Claude picks the right one from how you phrase it.
