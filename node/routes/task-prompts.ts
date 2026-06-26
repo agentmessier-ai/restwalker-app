@@ -3,6 +3,33 @@ import * as db from '../db.js'
 import { enqueueTask, forceRunTask } from '../runner.js'
 import { S, S_TASK_PROMPT } from './schemas.js'
 
+// Per-task delivery config (webhooks + timeout) shared by both prompt routes.
+// These live on the task, not the prompt — createNextRun carries them across runs.
+const TASK_CONFIG_PROPS = {
+  webhook_pre_url:    { type: 'string' },
+  webhook_post_url:   { type: 'string' },
+  webhook_timeout_ms: { type: 'integer' },
+  webhook_retry:      { type: 'integer' },
+  webhook_ignore_ssl: { type: 'integer' },
+  timeout_ms:         { type: 'integer', description: 'Per-task agent timeout in ms; omit for the global default' },
+} as const
+
+interface TaskConfigBody {
+  webhook_pre_url?: string; webhook_post_url?: string
+  webhook_timeout_ms?: number; webhook_retry?: number; webhook_ignore_ssl?: number; timeout_ms?: number
+}
+
+function taskConfigOpts(b: TaskConfigBody) {
+  return {
+    webhookPreUrl:    b.webhook_pre_url    ?? null,
+    webhookPostUrl:   b.webhook_post_url   ?? null,
+    webhookTimeoutMs: b.webhook_timeout_ms ?? 10000,
+    webhookRetry:     b.webhook_retry      ?? 2,
+    webhookIgnoreSsl: b.webhook_ignore_ssl ?? 0,
+    timeoutMs:        b.timeout_ms         ?? null,
+  }
+}
+
 export default async function taskPromptsRoutes(app: FastifyInstance) {
   app.post('/task-prompts', {
     schema: {
@@ -19,6 +46,7 @@ export default async function taskPromptsRoutes(app: FastifyInstance) {
           provider_id: { type: 'integer' },
           schedule:    { type: 'string', enum: ['once','hourly','daily','weekly','monthly'] },
           run_now:     { type: 'boolean' },
+          ...TASK_CONFIG_PROPS,
         },
       },
       response: {
@@ -30,14 +58,14 @@ export default async function taskPromptsRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { content, title, cwd, model, provider_id, schedule, run_now } =
-      req.body as { content?: string; title?: string; cwd?: string; model?: string; provider_id?: number; schedule?: db.TaskSchedule; run_now?: boolean }
+    const b = req.body as { content?: string; title?: string; cwd?: string; model?: string; provider_id?: number; schedule?: db.TaskSchedule; run_now?: boolean } & TaskConfigBody
+    const { content, title, cwd, model, provider_id, schedule, run_now } = b
     if (!content?.trim()) return reply.code(400).send({ error: 'content required' })
     const prompt = db.createTaskPrompt(content.trim(), {
       title: title?.trim(), cwd: cwd?.trim(), model: model?.trim(),
       providerId: provider_id ?? null, schedule: schedule || 'once',
     })
-    const task = db.addTask(prompt.content, prompt.cwd, prompt.model, prompt.provider_id, prompt.schedule as db.TaskSchedule, { promptId: prompt.id })
+    const task = db.addTask(prompt.content, prompt.cwd, prompt.model, prompt.provider_id, prompt.schedule as db.TaskSchedule, { promptId: prompt.id, ...taskConfigOpts(b) })
     enqueueTask(task)
     if (run_now) forceRunTask(task.id, msg => app.log.info(msg)).catch(console.error)
     app.log.info(`[task-prompts] created prompt #${prompt.id} v1, task #${task.id}`)
@@ -60,6 +88,7 @@ export default async function taskPromptsRoutes(app: FastifyInstance) {
           provider_id: { type: 'integer' },
           schedule:    { type: 'string', enum: ['once','hourly','daily','weekly','monthly'] },
           run_now:     { type: 'boolean' },
+          ...TASK_CONFIG_PROPS,
         },
       },
       response: {
@@ -75,14 +104,14 @@ export default async function taskPromptsRoutes(app: FastifyInstance) {
     const promptId = parseInt((req.params as { id: string }).id)
     const existing = db.getTaskPrompt(promptId)
     if (!existing) return reply.code(404).send({ error: 'prompt not found' })
-    const { content, title, cwd, model, provider_id, schedule, run_now } =
-      req.body as { content?: string; title?: string; cwd?: string; model?: string; provider_id?: number; schedule?: db.TaskSchedule; run_now?: boolean }
+    const b = req.body as { content?: string; title?: string; cwd?: string; model?: string; provider_id?: number; schedule?: db.TaskSchedule; run_now?: boolean } & TaskConfigBody
+    const { content, title, cwd, model, provider_id, schedule, run_now } = b
     if (!content?.trim()) return reply.code(400).send({ error: 'content required' })
     const prompt = db.saveTaskPromptVersion(existing.origin_id, content.trim(), {
       title: title?.trim(), cwd: cwd?.trim(), model: model?.trim(),
       providerId: provider_id ?? null, schedule: schedule || 'once',
     })
-    const task = db.addTask(prompt.content, prompt.cwd, prompt.model, prompt.provider_id, prompt.schedule as db.TaskSchedule, { promptId: prompt.id })
+    const task = db.addTask(prompt.content, prompt.cwd, prompt.model, prompt.provider_id, prompt.schedule as db.TaskSchedule, { promptId: prompt.id, ...taskConfigOpts(b) })
     enqueueTask(task)
     if (run_now) forceRunTask(task.id, msg => app.log.info(msg)).catch(console.error)
     app.log.info(`[task-prompts] saved prompt #${existing.origin_id} v${prompt.version}, task #${task.id}`)

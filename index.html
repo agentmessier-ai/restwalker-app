@@ -1700,6 +1700,14 @@ async function openRequeuePanel(taskId) {
   document.getElementById('rq-schedule').value = t.schedule || 'once'
   document.getElementById('rq-title').value = ''
   document.getElementById('rq-run-now').checked = false
+  // prefill advanced fields from the task being edited
+  document.getElementById('rq-cwd').value = t.cwd || ''
+  document.getElementById('rq-timeout-min').value = t.timeout_ms ? Math.round(t.timeout_ms / 60000) : ''
+  document.getElementById('rq-webhook-pre').value = t.webhook_pre_url || ''
+  document.getElementById('rq-webhook-post').value = t.webhook_post_url || ''
+  document.getElementById('rq-webhook-timeout').value = t.webhook_timeout_ms ?? 10000
+  document.getElementById('rq-webhook-retry').value = t.webhook_retry ?? 2
+  document.getElementById('rq-webhook-ignore-ssl').checked = (t.webhook_ignore_ssl ?? 0) === 1
 
   const vlist = document.getElementById('rq-version-list')
   if (t.prompt_id) {
@@ -1741,16 +1749,26 @@ async function rqSaveAndQueue() {
   const runNow   = document.getElementById('rq-run-now').checked
   if (!content) { alert('Task prompt cannot be empty'); return }
 
-  let url = '/task-prompts'
-  let body = { content, title, schedule, run_now: runNow }
+  // advanced fields from the panel
+  const timeoutMin = parseInt(document.getElementById('rq-timeout-min').value)
+  let body = {
+    content, title, schedule, run_now: runNow,
+    cwd: document.getElementById('rq-cwd').value.trim(),
+    webhook_pre_url:    document.getElementById('rq-webhook-pre').value.trim() || undefined,
+    webhook_post_url:   document.getElementById('rq-webhook-post').value.trim() || undefined,
+    webhook_timeout_ms: parseInt(document.getElementById('rq-webhook-timeout').value) || 10000,
+    webhook_retry:      parseInt(document.getElementById('rq-webhook-retry').value) || 0,
+    webhook_ignore_ssl: document.getElementById('rq-webhook-ignore-ssl').checked ? 1 : 0,
+    timeout_ms:         Number.isFinite(timeoutMin) && timeoutMin > 0 ? timeoutMin * 60000 : undefined,
+  }
 
+  let url = '/task-prompts'
   if (_rqTaskId) {
     const t = await fetch(`/queue/${_rqTaskId}`).then(r => r.json()).catch(() => null)
     if (t?.prompt_id) {
       url = `/task-prompts/${t.prompt_id}/versions`
     }
     if (t) {
-      body.cwd = t.cwd || ''
       body.model = t.model || 'claude-sonnet-4-6'
       body.provider_id = t.provider_id
     }
@@ -1936,6 +1954,40 @@ async function installPlugin() {
         </select>
       </div>
     </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Working directory</div>
+        <input id="rq-cwd" placeholder="(task workspace)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:var(--mono);box-sizing:border-box">
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Task timeout (min, blank = default)</div>
+        <input id="rq-timeout-min" type="number" min="1" max="180" placeholder="default" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:inherit;box-sizing:border-box">
+      </div>
+    </div>
+    <details style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 12px">
+      <summary style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;cursor:pointer">Webhooks</summary>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
+        <div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Pre-task URL</div>
+          <input id="rq-webhook-pre" placeholder="https://…" style="width:100%;background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:inherit;box-sizing:border-box">
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Post-task URL</div>
+          <input id="rq-webhook-post" placeholder="https://…" style="width:100%;background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:inherit;box-sizing:border-box">
+        </div>
+        <div style="display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap">
+          <div>
+            <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:4px">Webhook timeout</div>
+            <div style="display:flex;align-items:center;gap:6px"><input id="rq-webhook-timeout" type="number" value="10000" min="1000" max="60000" style="width:90px;background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:inherit"><span style="font-size:11px;color:var(--muted)">ms</span></div>
+          </div>
+          <div>
+            <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:4px">Retries</div>
+            <input id="rq-webhook-retry" type="number" value="2" min="0" max="10" style="width:60px;background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:inherit">
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer"><input type="checkbox" id="rq-webhook-ignore-ssl" style="accent-color:var(--blue)"> Ignore SSL</label>
+        </div>
+      </div>
+    </details>
     <div>
       <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Version history</div>
       <div id="rq-version-list" style="display:flex;flex-direction:column;gap:4px;max-height:150px;overflow-y:auto"></div>
