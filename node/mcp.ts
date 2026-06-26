@@ -108,12 +108,17 @@ server.tool(
   'queue_add',
   'Enqueue a new background task for execution by Claude Code when the gate opens',
   {
-    description: z.string().describe('The task prompt sent to the agent'),
-    cwd:         z.string().optional().describe('Working directory for the agent'),
-    model:       z.string().optional().describe('Model ID, e.g. claude-sonnet-4-6'),
-    provider_id: z.number().int().optional().describe('Provider ID (omit for default)'),
-    schedule:    z.enum(['once','hourly','daily','weekly','monthly']).default('once').optional()
-                   .describe('Recurrence — once runs immediately, others repeat'),
+    description:      z.string().describe('The task prompt sent to the agent'),
+    cwd:              z.string().optional().describe('Working directory for the agent'),
+    model:            z.string().optional().describe('Model ID, e.g. claude-sonnet-4-6'),
+    provider_id:      z.number().int().optional().describe('Provider ID (omit for default)'),
+    schedule:         z.enum(['once','hourly','daily','weekly','monthly']).default('once').optional()
+                        .describe('Recurrence — once runs immediately, others repeat'),
+    webhook_pre_url:  z.string().optional().describe('URL to POST before the agent starts'),
+    webhook_post_url: z.string().optional().describe('URL to POST after the agent finishes (includes status, tokens, result)'),
+    webhook_timeout_ms: z.number().int().optional().describe('Webhook HTTP timeout in ms (default 10000)'),
+    webhook_retry:    z.number().int().optional().describe('Webhook retry attempts on failure (default 2)'),
+    webhook_ignore_ssl: z.number().int().min(0).max(1).optional().describe('Set 1 to skip TLS verification for self-signed certs'),
   },
   async (args) => text(await api('POST', '/queue', args)),
 )
