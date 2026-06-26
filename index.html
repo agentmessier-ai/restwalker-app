@@ -33,6 +33,32 @@
   .dot.amber { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
   .dot.red   { background: var(--red);   box-shadow: 0 0 6px var(--red); }
   .ts { font-size: 12px; color: var(--muted); }
+  /* Center nav explainer — says, in plain English, why the gate is in its
+     current state and the one-click path to running now. Driven by /status. */
+  /* Header layout priority: the right-side controls (incl. the gear) must never
+     be pushed off-screen, so they don't shrink; the title can shrink; the
+     explainer absorbs the slack. JS (fitNavExplain) then hides the explainer
+     whenever the real leftover space can't fit it — measured, not a fixed
+     breakpoint, so it adapts to any screen size, zoom, or label length. */
+  header > :first-child { flex: 0 1 auto; min-width: 0; }
+  header > .header-right { flex: 0 0 auto; }
+  .nav-explain {
+    flex: 1 1 0; display: flex; justify-content: center; align-items: center;
+    gap: 10px; min-width: 0; padding: 0 18px; overflow: hidden;
+  }
+  .nav-explain .ne-msg {
+    font-size: 12.5px; color: var(--muted); cursor: default;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    min-width: 0;
+  }
+  .nav-explain .ne-msg b { color: var(--text); font-weight: 600; }
+  .nav-explain .ne-act {
+    flex: 0 0 auto; white-space: nowrap; background: rgba(59,130,246,.14);
+    border: 1px solid rgba(59,130,246,.4); color: #93c5fd;
+    border-radius: 6px; padding: 5px 11px; font-size: 12px; font-weight: 600;
+    cursor: pointer; font-family: inherit;
+  }
+  .nav-explain .ne-act:hover { background: rgba(59,130,246,.24); }
 
   /* ── Gear button ── */
   .gear-btn {
@@ -173,6 +199,7 @@
     <h1><span style="color:var(--muted);font-weight:400">AgentMessier</span> <span style="color:var(--muted);font-weight:300;margin:0 2px">—</span> RestWalker</h1>
     <span class="sub">Don't waste your Max plan — put idle tokens to work</span>
   </div>
+  <div class="nav-explain" id="nav-explain"></div>
   <div class="header-right">
     <span class="ts" id="refresh-ts"></span>
     <div class="status-pill">
@@ -692,6 +719,8 @@ function renderStatus(s) {
   else if (!s.ok)            { dot.className='dot red';   label.textContent='Paused'; }
   else                       { dot.className='dot green'; label.textContent='Idle · max'; }
 
+  renderNavExplain(s);
+
   // Window card
   const wEl  = document.getElementById('card-window');
   const wSub = document.getElementById('card-window-sub');
@@ -752,6 +781,114 @@ function renderStatus(s) {
     const abbr = tzAbbr(tz);
     document.getElementById('sched-group-title').textContent = `Schedule (${abbr})`;
   }
+}
+
+// ── Center nav explainer ──────────────────────────────────────────────────────
+// Turns the gate state into one plain-English sentence + (when relevant) a
+// one-click path to running now. Mirrors the precedence in scheduler.canRun()
+// so the explanation always matches the actual reason the daemon paused.
+function renderNavExplain(s) {
+  const el = document.getElementById('nav-explain');
+  if (!el) return;
+  const t   = s.thresholds || {}, u = s.usage || {};
+  const t5  = t.five_hour_pause_pct  ?? 75;
+  const stop = t.weekly_hard_stop_pct ?? 90;
+  const reserve = t.weekly_reserve_pct ?? 35;
+  const ceiling = 100 - reserve;
+  const fiveH  = Math.round(u.five_hour_pct ?? 0);
+  const weekly = Math.round(u.weekly_pct ?? 0);
+
+  // short = the one-line summary shown in the bar; full = the why, on hover.
+  let short = '', full = '', act = '';
+
+  if (s.window === 'coding') {
+    const sh = t.coding_start_h, eh = t.coding_end_h;
+    short = `🌙 <b>Your coding hours (${sh}:00–${eh}:00)</b> — tasks resume after`;
+    full  = `It's your configured coding window (${sh}:00–${eh}:00). Background tasks stay out of your way and resume automatically when it ends.`;
+    act = `<button class="ne-act" onclick="openSettings()">Adjust hours</button>`;
+  } else if (!s.ok && fiveH >= t5) {
+    short = `⏸ <b>5-hour budget high (${fiveH}%)</b> — clears within a few hours`;
+    full  = `Paused because your 5-hour usage (${fiveH}%) is above the ${t5}% line, so background tasks never slow your live coding. The 5-hour window refills on its own — no action needed.`;
+    act = `<button class="ne-act" onclick="openSettings()">Adjust threshold</button>`;
+  } else if (!s.ok && weekly >= stop) {
+    short = `⛔ <b>Weekly budget nearly used (${weekly}%)</b> — stopped until reset`;
+    full  = `Hard-stopped: weekly usage (${weekly}%) is at or above the ${stop}% safety limit. Tasks stay off until your weekly budget resets, to avoid overage.`;
+    act = `<button class="ne-act" onclick="openSettings()">Adjust limit</button>`;
+  } else if (!s.ok && weekly >= ceiling) {
+    short = `⏸ <b>Saving your weekly budget</b> — paused above ${ceiling}% (now ${weekly}%)`;
+    full  = `You've used ${weekly}% of this week's Claude budget. RestWalker keeps the last ${reserve}% reserved for your own coding, so background tasks pause above ${ceiling}% and resume automatically as your weekly usage resets. Your 5-hour budget (${fiveH}%) is fine — the weekly pool is the limit.`;
+    act = `<button class="ne-act" onclick="runNowLowerReserve(${weekly})">Lower reserve &amp; run now</button>`;
+  } else {
+    el.innerHTML = '';   // gate open — badge already says "Idle · max"
+    el.dataset.content = '';
+    fitNavExplain();
+    return;
+  }
+
+  el.innerHTML = `<span class="ne-msg" title="${full.replace(/"/g,'&quot;')}">${short}</span>${act}`;
+  el.dataset.content = '1';
+  fitNavExplain();
+}
+
+// Dynamically decide whether the explainer fits, by MEASURING the real leftover
+// space in the header (total − title − right controls) against the explainer's
+// natural width. No viewport breakpoints: works at any resolution, zoom level,
+// or text/label length. The right controls are flex:0 0 auto, so they're never
+// clipped; we just hide the explainer when there isn't room for it in full.
+function fitNavExplain() {
+  const ne = document.getElementById('nav-explain');
+  const header = document.querySelector('header');
+  if (!ne || !header) return;
+  if (!ne.dataset.content) { ne.style.display = 'none'; return; }
+
+  const left  = header.firstElementChild;
+  const right = header.querySelector('.header-right');
+
+  // Natural width the explainer wants, measured out of flow so it doesn't
+  // disturb the left/right measurements.
+  const saved = ne.getAttribute('style') || '';
+  ne.style.cssText = 'position:absolute;visibility:hidden;display:inline-flex;white-space:nowrap;flex:0 0 auto;left:0;top:0;padding:0 18px;';
+  const need = ne.scrollWidth;
+  ne.setAttribute('style', saved);
+
+  const cs   = getComputedStyle(header);
+  const padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+  const avail = header.clientWidth - padX - left.offsetWidth - right.offsetWidth - 24; // small breathing gap
+
+  ne.style.display = avail >= need ? 'flex' : 'none';
+}
+
+// Re-measure whenever the header resizes (window resize, zoom, devtools, etc.).
+let _navFitObserver = null;
+function initNavFit() {
+  if (_navFitObserver) return;
+  const header = document.querySelector('header');
+  if (!header || typeof ResizeObserver === 'undefined') {
+    window.addEventListener('resize', fitNavExplain);   // fallback
+    return;
+  }
+  _navFitObserver = new ResizeObserver(() => fitNavExplain());
+  _navFitObserver.observe(header);
+}
+
+// One-click path forward for the weekly-reserve pause: drop the reserve just
+// enough to clear the gate now (keeping ~5% headroom), with an explicit confirm.
+async function runNowLowerReserve(weekly) {
+  const newReserve = Math.max(5, Math.floor(95 - weekly));   // ceiling = weekly + 5
+  const newCeiling = 100 - newReserve;
+  const ok = confirm(
+    `Lower the weekly coding reserve so background tasks can run now?\n\n` +
+    `• Weekly usage: ${weekly}%\n` +
+    `• Pause threshold: ${newCeiling}% (was ${100 - (currentThresholds.weekly_reserve_pct ?? 35)}%)\n` +
+    `• Reserve kept for your coding: ${newReserve}%\n\n` +
+    `You can change this back anytime in Settings.`
+  );
+  if (!ok) return;
+  await fetch('/settings', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ WEEKLY_RESERVE_PCT: String(newReserve) }),
+  }).catch(() => {});
+  refresh();
 }
 
 // ── Predictions ───────────────────────────────────────────────────────────────
@@ -1051,6 +1188,7 @@ async function loadTaskTimeoutDefault() {
 async function init() {
   const startTab = window.location.hash === '#queue' ? 'queue' : 'dash'
   if (startTab === 'queue') switchTab('queue', false)
+  initNavFit();
   await loadTaskTimeoutDefault();
   await fetch('/sync', { method: 'POST' }).catch(() => {});
   await refresh();
