@@ -1154,8 +1154,10 @@ function providerEdit(id) {
 
 // ── Projects ──────────────────────────────────────────────────────────────────
 
+let _projectsCache = { home: '', projects: [] }
 async function loadProjects() {
   const data = await fetch('/projects').then(r => r.json()).catch(() => null)
+  _projectsCache = { home: data?.home ?? '', projects: data?.projects ?? [] }
   const sel = document.getElementById('q-cwd-select')
   const projects = data?.projects ?? []
   sel.innerHTML =
@@ -1481,8 +1483,9 @@ function renderTaskDetail(t, hasSession) {
             <span style="color:rgba(165,180,252,.5);font-size:10px">${fmtBytes(a.size)}</span>
           </button>
           <button onclick="revealArtifact('${escHtml(a.path)}')"
-            style="display:flex;align-items:center;background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.25);color:#a5b4fc;border-radius:0 5px 5px 0;padding:4px 8px;font-size:11px;cursor:pointer;font-family:inherit"
+            style="display:flex;align-items:center;background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.25);color:#a5b4fc;border-radius:${/-skill\.md$/i.test(a.path) ? '0' : '0 5px 5px 0'};padding:4px 8px;font-size:11px;cursor:pointer;font-family:inherit"
             title="Reveal in Finder">📁</button>
+          ${/-skill\.md$/i.test(a.path) ? skillDeploySelect(a.path) : ''}
         </div>`
       }
       html += `</div></div>`
@@ -1593,6 +1596,33 @@ async function openFolder(path) {
 }
 async function revealArtifact(path) {
   await fetch('/open-folder', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ path, reveal: true }) }).catch(()=>{})
+}
+
+// Deploy control shown next to *-skill.md artifacts: pick user-level or a project
+function skillDeploySelect(path) {
+  const home = _projectsCache.home || ''
+  const projOpts = (_projectsCache.projects || []).map(p => {
+    const label = home ? p.cwd.replace(home + '/', '~/').replace(home, '~') : p.cwd
+    return `<option value="project::${escHtml(p.cwd)}">→ ${escHtml(label)}</option>`
+  }).join('')
+  return `<select onchange="deploySkill('${escHtml(path)}', this)" title="Deploy this skill into Claude Code"
+    style="background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.35);color:#86efac;border-radius:0 5px 5px 0;border-left:none;padding:4px 6px;font-size:11px;cursor:pointer;font-family:inherit">
+    <option value="">🚀 Deploy…</option>
+    <option value="user">→ User (~/.claude/skills)</option>
+    ${projOpts}
+  </select>`
+}
+
+async function deploySkill(path, sel) {
+  const val = sel.value
+  sel.value = ''
+  if (!val) return
+  const body = val === 'user'
+    ? { path, scope: 'user' }
+    : { path, scope: 'project', projectPath: val.replace(/^project::/, '') }
+  const r = await fetch('/skills/deploy', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }).then(r => r.json()).catch(() => ({}))
+  if (r.ok) alert(`Deployed skill "${r.name}" →\n${r.deployed}\n\nReload Claude Code (/reload-plugins or new session) to use it.`)
+  else alert('Deploy failed: ' + (r.error || 'unknown error'))
 }
 async function openLogsFolder() {
   const meta = await fetch('/meta').then(r => r.json()).catch(() => null)

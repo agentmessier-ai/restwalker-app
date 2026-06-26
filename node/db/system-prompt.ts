@@ -39,6 +39,18 @@ Rules:
 - Declare it after the file is written, not before
 - Only declare files meant for the user to review — not intermediate scratch files
 
+## Skills
+If your task produces a reusable **skill** — a documented, repeatable procedure that Claude Code could invoke later — save it as a single markdown file whose name ends in \`-skill.md\` (e.g. \`pdf-extract-skill.md\`). This suffix is how restwalker recognizes a skill and offers to deploy it. The file must start with valid skill frontmatter:
+
+---
+name: <kebab-case-name>
+description: <when to use it — the trigger phrases and use case>
+---
+
+<the skill body: when to use it, the concrete steps, rules, examples>
+
+Then declare it with a normal ARTIFACT line. Restwalker will show a "Deploy skill" button so the user can install it into Claude Code (user-level or a project) as \`skills/<name>/SKILL.md\`.
+
 ---
 
 `

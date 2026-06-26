@@ -152,12 +152,17 @@ export function migrate(): void {
     }).run()
   }
 
-  // Seed builtin system prompt (once)
+  // Seed builtin system prompt (once); keep its content current on upgrades.
+  // The builtin row (is_builtin=1) is never user-edited — edits create new versions —
+  // so refreshing it propagates protocol updates without touching custom prompts.
   const spCount = db.select({ n: sql<number>`count(*)` }).from(schema.systemPrompts).where(eq(schema.systemPrompts.is_builtin, 1)).get()!.n
   if (!spCount) {
     db.insert(schema.systemPrompts).values({
       version: 1, label: 'Built-in default', content: BUILTIN_SYSTEM_PROMPT, is_builtin: 1,
     }).run()
+  } else {
+    db.update(schema.systemPrompts).set({ content: BUILTIN_SYSTEM_PROMPT })
+      .where(eq(schema.systemPrompts.is_builtin, 1)).run()
   }
 
   // Prune old snapshots
