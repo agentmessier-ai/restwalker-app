@@ -1,6 +1,6 @@
 {
   "name": "@agentmessier/restwalker",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "While you rest, it walks — idle-time Claude task runner for Mac",
   "type": "module",
   "bin": {
