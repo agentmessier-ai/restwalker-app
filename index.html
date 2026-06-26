@@ -280,11 +280,21 @@
       <button onclick="queueAddTask()" style="background:var(--blue);color:#fff;border:none;border-radius:6px;padding:7px 14px;cursor:pointer;font-family:inherit;font-size:13px;white-space:nowrap">Add to queue</button>
     </div>
     <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
-      <button onclick="qToggleAdvanced()" id="q-advanced-toggle" style="background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;font-family:inherit;padding:0;display:flex;align-items:center;gap:5px;font-weight:500">▸ Webhooks &amp; advanced</button>
+      <button onclick="qToggleAdvanced()" id="q-advanced-toggle" style="background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;font-family:inherit;padding:0;display:flex;align-items:center;gap:5px;font-weight:500">▸ Advanced — task timeout &amp; webhooks</button>
       <div id="q-advanced" style="display:none;margin-top:12px;flex-direction:column;gap:12px">
+        <!-- Task timeout (agent kill timer) — most-used advanced setting, shown first -->
+        <div style="display:flex;gap:8px;align-items:flex-end">
+          <div>
+            <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:4px">Task timeout</div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <input id="q-timeout-min" type="number" placeholder="default" min="1" max="180" style="width:90px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:inherit">
+              <span style="font-size:11px;color:var(--muted)">min — kill the agent if it runs longer (blank = global default, 10 min). Raise this for long research tasks.</span>
+            </div>
+          </div>
+        </div>
         <!-- Webhook hint -->
-        <div style="font-size:11px;color:var(--muted);background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;line-height:1.6">
-          Restwalker will POST JSON to these URLs before and after the task runs — useful for triggering notifications (Slack, Discord), updating external systems, or chaining workflows. Failures are logged and never abort the task.
+        <div style="font-size:11px;color:var(--muted);background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;line-height:1.6;border-top:1px solid var(--border);margin-top:4px">
+          <strong style="color:var(--text)">Webhooks</strong> — restwalker POSTs JSON to these URLs before and after the task runs — useful for triggering notifications (Slack, Discord), updating external systems, or chaining workflows. Failures are logged and never abort the task.
         </div>
         <!-- Webhook URLs -->
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
@@ -302,7 +312,7 @@
         <!-- Timeout / retry / SSL -->
         <div style="display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap">
           <div>
-            <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:4px">Timeout</div>
+            <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:4px">Webhook timeout</div>
             <div style="display:flex;align-items:center;gap:6px">
               <input id="q-webhook-timeout" type="number" value="10000" min="1000" max="60000" style="width:90px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:inherit">
               <span style="font-size:11px;color:var(--muted)">ms</span>
@@ -315,16 +325,6 @@
           <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer">
             <input type="checkbox" id="q-webhook-ignore-ssl" style="accent-color:var(--blue)"> Ignore SSL certificate errors
           </label>
-        </div>
-        <!-- Task timeout (agent kill timer) -->
-        <div style="display:flex;gap:8px;align-items:flex-end;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
-          <div>
-            <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:4px">Task timeout</div>
-            <div style="display:flex;align-items:center;gap:6px">
-              <input id="q-timeout-min" type="number" placeholder="default" min="1" max="180" style="width:90px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:inherit">
-              <span style="font-size:11px;color:var(--muted)">min — kill the agent if it runs longer (blank = global default, 10 min). Raise this for long research tasks.</span>
-            </div>
-          </div>
         </div>
       </div>
     </div>
