@@ -1306,9 +1306,15 @@ function renderTaskDetail(t, hasSession) {
     </div>`
   }
 
-  html += `<div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;max-height:320px;overflow-y:auto" class="md-body">${renderMd(t.description)}</div>`
+  html += `<div style="margin-bottom:8px">
+    <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:4px">Task</div>
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;max-height:320px;overflow-y:auto" class="md-body">${renderMd(t.description)}</div>
+  </div>`
   if (t.result) {
-    html += `<div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;max-height:240px;overflow-y:auto" class="md-body">${renderMd(t.result)}</div>`
+    html += `<div style="margin-bottom:8px">
+      <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:4px">Output</div>
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;max-height:240px;overflow-y:auto" class="md-body">${renderMd(t.result)}</div>
+    </div>`
   }
 
   // Artifacts
