@@ -31,7 +31,7 @@ Runs as a LaunchAgent on port **47290** with a SQLite database, a dashboard UI, 
 **Requirements:** macOS, Node.js 20+, Claude Code CLI (`claude login` must have been run — restwalker reads your credentials from the macOS Keychain)
 
 ```bash
-git clone https://github.com/agentmessier-ai/restwalker.git
+git clone https://github.com/agentmessier-ai/restwalker-app.git
 cd restwalker
 ./install.sh
 ```
@@ -243,7 +243,7 @@ any chat — no dashboard needed. It bundles four skills (and the MCP server):
 | `/restwalker:dream-journal` | "set up my nightly dream journal" |
 
 ```
-/plugin marketplace add agentmessier-ai/restwalker
+/plugin marketplace add agentmessier-ai/restwalker-app
 /plugin install restwalker@restwalker
 ```
 

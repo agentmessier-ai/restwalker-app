@@ -35,7 +35,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/agentmessier-ai/restwalker.git"
+    "url": "git+https://github.com/agentmessier-ai/restwalker-app.git"
   },
-  "homepage": "https://github.com/agentmessier-ai/restwalker#readme"
+  "homepage": "https://github.com/agentmessier-ai/restwalker-app#readme"
 }

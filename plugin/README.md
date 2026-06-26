@@ -1,6 +1,6 @@
 # RestWalker plugin for Claude Code
 
-Defer work to [RestWalker](https://github.com/agentmessier-ai/restwalker) — the idle-time
+Defer work to [RestWalker](https://github.com/agentmessier-ai/restwalker-app) — the idle-time
 Claude task runner — without leaving your chat. You're coding, you spot something important
 but not urgent, and you just say *"create a restwalker task to do this tonight."* The skill
 writes a self-contained task and queues it via the RestWalker MCP server.
@@ -26,7 +26,7 @@ enabled. If RestWalker isn't connected, the skills will tell you.
 ## Install the plugin
 
 ```
-/plugin marketplace add agentmessier-ai/restwalker
+/plugin marketplace add agentmessier-ai/restwalker-app
 /plugin install restwalker@restwalker
 ```
 
