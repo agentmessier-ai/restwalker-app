@@ -1462,7 +1462,7 @@ function renderSession(turns) {
       html += `<div style="margin-bottom:6px">
         <button onclick="const d=document.getElementById('${id}');d.style.display=d.style.display?'':'none'"
           style="background:rgba(139,92,246,.15);border:1px solid rgba(139,92,246,.3);color:#a78bfa;border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer;font-family:inherit">
-          💭 Reasoning (${Math.round(turn.thinking.length/1000)}k chars)
+          💭 Reasoning (${turn.thinking.length < 1000 ? turn.thinking.length + ' chars' : Math.round(turn.thinking.length/1000) + 'k chars'})
         </button>
         <div id="${id}" style="display:none;margin-top:6px;background:rgba(139,92,246,.05);border:1px solid rgba(139,92,246,.2);border-radius:6px;padding:8px;font-size:11px;font-family:var(--mono);white-space:pre-wrap;color:#c4b5fd;max-height:300px;overflow-y:auto">${escHtml(turn.thinking)}</div>
       </div>`
