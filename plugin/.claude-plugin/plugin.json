@@ -2,7 +2,7 @@
   "name": "restwalker",
   "displayName": "RestWalker",
   "description": "Defer work to RestWalker from any Claude Code chat \u2014 queue idle-time tasks, check the queue and budget, and review results. Skills call the RestWalker MCP server.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": {
     "name": "agentmessier-ai"
   },

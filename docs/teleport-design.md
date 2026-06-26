@@ -48,6 +48,7 @@ committed on `feature/teleport`** — not yet pushed / merged to `develop`.
 | 15 | "Inject teleported context as a queued restwalker task" mode | ⛔ deferred | Phase 3 — see note |
 | 16 | Multi-session merge | ⛔ deferred | Phase 3 — see note |
 | 17 | Automated tests (teleport core) | ✅ done | `node/test/teleport.test.ts` (6 tests) |
+| 18 | Claude Code plugin skill (`/restwalker:teleport`) | ✅ done | `plugin/skills/teleport/SKILL.md` |
 
 Legend: ✅ done · ⛔ deliberately deferred.
 

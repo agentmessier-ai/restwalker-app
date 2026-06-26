@@ -38,8 +38,9 @@ enabled. If RestWalker isn't connected, the skills will tell you.
 | **`/restwalker:status`** | "restwalker status", "what's in my queue", "how much budget left" | `queue_stats` + `queue_list` + `status` — what's queued/running, recent results, budget, next idle window. |
 | **`/restwalker:result`** | "what did last night's task produce", "show the dream journal" | `queue_get` + `queue_artifacts` (+ `queue_session`) — the outcome and its output files. |
 | **`/restwalker:dream-journal`** | "set up my nightly dream journal" | Schedules the daily self-improvement task (distill skills + best-practice scan → report). |
+| **`/restwalker:teleport`** | "what was I doing in <folder>", "carry over the conversation from my other Mac" | Pulls a recent Claude conversation from another folder or another Mac into this session (`teleport` / `teleport_list` / `teleport_folders` / `teleport_peers`). |
 
-All four auto-trigger from natural language (no need to type the `/` form) — the descriptions
+All five auto-trigger from natural language (no need to type the `/` form) — the descriptions
 are written so Claude picks the right one from how you phrase it.
 
 ## Other skills we may add
