@@ -114,7 +114,8 @@ async function processTask(input: QueuePayload): Promise<void> {
   }
 
   const loopType = (provider.loop_type ?? 'claude_print') as LoopType
-  const loop = createLoop(loopType, getTaskTimeoutMs())
+  // per-task timeout overrides the global TASK_TIMEOUT_MS setting when set
+  const loop = createLoop(loopType, task.timeout_ms ?? getTaskTimeoutMs())
 
   const loopCtx: AgentLoopContext = {
     task,
@@ -142,8 +143,9 @@ async function processTask(input: QueuePayload): Promise<void> {
     })
   } catch (e) {
     const errMsg = (e as Error).message
-    db.setTaskFailed(task.id, errMsg)
+    const { next } = db.setTaskFailed(task.id, errMsg)
     await plugins.invoke('post_task', { task, workspacePath, status: 'failed', tokensUsed: 0, toolCalls: 0, result: errMsg })
+    if (next) _log.info(`[queue] #${task.id} failed — next run scheduled as #${next.id} at ${next.next_run_at}`)
     return
   }
 

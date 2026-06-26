@@ -71,6 +71,8 @@ export const tasks = sqliteTable('tasks', {
   webhook_timeout_ms: integer('webhook_timeout_ms').notNull().default(10000),
   webhook_retry:      integer('webhook_retry').notNull().default(2),
   webhook_ignore_ssl: integer('webhook_ignore_ssl').notNull().default(0),
+  // per-task agent timeout; null = use the global TASK_TIMEOUT_MS setting
+  timeout_ms:         integer('timeout_ms'),
 })
 
 export const taskPrompts = sqliteTable('task_prompts', {

@@ -40,6 +40,7 @@ export const S = {
       webhook_timeout_ms: { type: 'integer' },
       webhook_retry:      { type: 'integer' },
       webhook_ignore_ssl: { type: 'integer' },
+      timeout_ms:         { type: 'integer', nullable: true },
     },
   },
   ok: {

@@ -33,6 +33,7 @@ export function addTask(
     webhookTimeoutMs?: number
     webhookRetry?: number
     webhookIgnoreSsl?: number
+    timeoutMs?: number | null
   },
 ): Task {
   const task = db.insert(schema.tasks).values({
@@ -47,6 +48,7 @@ export function addTask(
     webhook_timeout_ms: opts?.webhookTimeoutMs ?? 10000,
     webhook_retry:      opts?.webhookRetry     ?? 2,
     webhook_ignore_ssl: opts?.webhookIgnoreSsl ?? 0,
+    timeout_ms:         opts?.timeoutMs        ?? null,
   }).returning().get()!
   // For recurring tasks, set origin_id to self on first creation
   if (schedule !== 'once') {
@@ -98,6 +100,7 @@ export function createNextRun(task: Task): Task | null {
     webhook_timeout_ms: task.webhook_timeout_ms ?? 10000,
     webhook_retry:      task.webhook_retry      ?? 2,
     webhook_ignore_ssl: task.webhook_ignore_ssl ?? 0,
+    timeout_ms:         task.timeout_ms         ?? null,
   }).returning().get()!
 }
 
@@ -142,6 +145,7 @@ function createNextRunInTx(tx: Parameters<Parameters<typeof db.transaction>[0]>[
     webhook_timeout_ms: task.webhook_timeout_ms ?? 10000,
     webhook_retry:      task.webhook_retry      ?? 2,
     webhook_ignore_ssl: task.webhook_ignore_ssl ?? 0,
+    timeout_ms:         task.timeout_ms         ?? null,
   }).returning().get()!
 }
 
@@ -291,11 +295,19 @@ export function setTaskDone(id: number, updates: {
   db.update(schema.tasks).set(set).where(eq(schema.tasks.id, id)).run()
 }
 
-export function setTaskFailed(id: number, error: string): void {
-  db.update(schema.tasks)
-    .set({ status: 'failed', result: error, finished_at: sql`(strftime('%Y-%m-%dT%H:%M:%SZ','now'))` as unknown as string })
-    .where(eq(schema.tasks.id, id))
-    .run()
+export function setTaskFailed(id: number, error: string): { task: Task; next: Task | null } {
+  return db.transaction((tx) => {
+    const now = new Date().toISOString()
+    tx.update(schema.tasks)
+      .set({ status: 'failed', result: error, finished_at: now })
+      .where(eq(schema.tasks.id, id))
+      .run()
+    const task = tx.select().from(schema.tasks).where(eq(schema.tasks.id, id)).get() as Task
+    // A failed run must not break a recurring chain — schedule the next occurrence
+    // so one transient failure (timeout, flaky network) doesn't kill a daily task.
+    const next = task.schedule !== 'once' ? createNextRunInTx(tx, task) : null
+    return { task, next }
+  })
 }
 
 export function cancelTask(id: number): void {

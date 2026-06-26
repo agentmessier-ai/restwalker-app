@@ -120,6 +120,7 @@ export function migrate(): void {
   if (!taskCols.includes('webhook_timeout_ms')) client.exec('ALTER TABLE tasks ADD COLUMN webhook_timeout_ms INTEGER NOT NULL DEFAULT 10000')
   if (!taskCols.includes('webhook_retry'))      client.exec('ALTER TABLE tasks ADD COLUMN webhook_retry INTEGER NOT NULL DEFAULT 2')
   if (!taskCols.includes('webhook_ignore_ssl')) client.exec('ALTER TABLE tasks ADD COLUMN webhook_ignore_ssl INTEGER NOT NULL DEFAULT 0')
+  if (!taskCols.includes('timeout_ms'))         client.exec('ALTER TABLE tasks ADD COLUMN timeout_ms INTEGER')
 
   // Seed default provider
   const count = db.select({ n: sql<number>`count(*)` }).from(schema.providers).get()!.n

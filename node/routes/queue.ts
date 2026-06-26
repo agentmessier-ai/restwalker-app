@@ -95,6 +95,7 @@ export default async function queueRoutes(app: FastifyInstance) {
           webhook_timeout_ms: { type: 'integer', default: 10000 },
           webhook_retry:    { type: 'integer', default: 2 },
           webhook_ignore_ssl: { type: 'integer', default: 0 },
+          timeout_ms:       { type: 'integer', description: 'Per-task agent timeout in ms; omit to use the global TASK_TIMEOUT_MS setting (default 10 min)' },
         },
       },
       response: {
@@ -104,11 +105,11 @@ export default async function queueRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     const { description, cwd, model, provider_id, schedule,
-            webhook_pre_url, webhook_post_url, webhook_timeout_ms, webhook_retry, webhook_ignore_ssl } =
+            webhook_pre_url, webhook_post_url, webhook_timeout_ms, webhook_retry, webhook_ignore_ssl, timeout_ms } =
       req.body as {
         description?: string; cwd?: string; model?: string; provider_id?: number; schedule?: db.TaskSchedule
         webhook_pre_url?: string; webhook_post_url?: string
-        webhook_timeout_ms?: number; webhook_retry?: number; webhook_ignore_ssl?: number
+        webhook_timeout_ms?: number; webhook_retry?: number; webhook_ignore_ssl?: number; timeout_ms?: number
       }
     if (!description?.trim()) return reply.code(400).send({ error: 'description required' })
     const task = db.addTask(description.trim(), cwd?.trim(), model?.trim(), provider_id, schedule || 'once', {
@@ -117,6 +118,7 @@ export default async function queueRoutes(app: FastifyInstance) {
       webhookTimeoutMs: webhook_timeout_ms ?? 10000,
       webhookRetry:     webhook_retry      ?? 2,
       webhookIgnoreSsl: webhook_ignore_ssl ?? 0,
+      timeoutMs:        timeout_ms         ?? null,
     })
     enqueueTask(task)
     app.log.info(`[queue] added #${task.id} (${task.schedule}): ${description.slice(0, 80)}`)

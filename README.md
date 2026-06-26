@@ -117,6 +117,18 @@ You have an MCP server called restwalker. Add a task to run nightly: ...
 
 Claude Code will call `queue_add` with the right parameters. You can also use the dashboard form or the REST API directly.
 
+### Example tasks
+
+The [`examples/tasks/`](examples/tasks/) directory ships reference recurring tasks you can
+copy and schedule:
+
+| Example | Schedule | What it does |
+|---|---|---|
+| [**Dream Journal**](examples/tasks/dream-journal.md) | `daily` | Reflects on the last 24h of Claude Code conversations, distills reusable **skills**, scans the web + GitHub trending for better practices, and writes one markdown report as an artifact. The canonical "good recurring task": reads local context, uses tools, produces a single artifact, and only runs during your idle window. |
+
+These are *not* installed automatically — they'd spend tokens nightly without your say-so.
+Copy the prompt, set the schedule, and queue it when you want it.
+
 ## Task workspace
 
 Every task gets its own workspace folder under `~/.restwalker/workspace/`:
