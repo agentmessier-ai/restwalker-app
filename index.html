@@ -576,6 +576,14 @@
     <div class="tab-pane" id="tab-teleport" style="display:none">
     <div class="settings-group">
       <div class="settings-group-title">Teleport — cross-folder & cross-Mac conversations</div>
+      <div style="font-size:11.5px;color:var(--muted);line-height:1.55;margin:2px 0 14px;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px">
+        <b style="color:var(--text)">Teleport pulls a recent Claude Code conversation from another folder — or another Mac on your LAN — into your current session.</b>
+        Claude Code ties each conversation to the folder it ran in, so you lose the thread when you start Claude in the wrong project folder, or pick a project up on a different computer. Teleport carries it over for continuity.
+        <br><br>
+        You use it <b style="color:var(--text)">from chat</b> — the <code>/restwalker:teleport</code> skill or the teleport MCP tools. Just ask, e.g. <i>“what was I doing in myproject”</i> or <i>“pull the conversation from my other Mac.”</i> There's nothing to run on this page; it's read-only and never modifies the source.
+        <br><br>
+        The settings below only <b style="color:var(--text)">configure</b> teleport: how far back it pulls by default, an optional shared token for authenticated access, and whether <b style="color:var(--text)">this</b> Mac lets other Macs pull its conversations.
+      </div>
       <div class="setting-row">
         <div>
           <div class="setting-label">Default window</div>
