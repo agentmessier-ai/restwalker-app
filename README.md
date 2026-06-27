@@ -29,7 +29,7 @@ Runs as a LaunchAgent on port **47290** with a SQLite database, a dashboard UI, 
 
 ```bash
 npm install -g @agentmessier/restwalker   # the CLI
-restwalker install                         # daemon (LaunchAgent); skip its "register MCP?" prompt — the plugin wires that up
+restwalker install                         # daemon (LaunchAgent) — the plugin below wires up the MCP
 ```
 
 Then, in Claude Code, add the plugin:
@@ -84,7 +84,7 @@ cd restwalker
 The installer:
 - Installs Node dependencies
 - Installs and starts the LaunchAgent (auto-restarts on login)
-- Interactively offers to register the MCP server with Claude Code
+- Points you to the plugin (which provides the MCP + skills); no standalone MCP is auto-registered, so there's nothing to un-pick later
 
 Open `http://localhost:47290` to confirm it's running.
 
