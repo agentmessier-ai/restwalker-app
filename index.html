@@ -585,40 +585,39 @@
       </div>
       <div class="setting-row">
         <div>
-          <div class="setting-label">Cross-Mac discovery</div>
-          <div class="setting-hint">Advertise on the LAN so paired Macs can teleport conversations. Trusted networks only. (Needs the daemon bound to 0.0.0.0.)</div>
+          <div class="setting-label">Pairing token</div>
+          <div class="setting-hint">Shared secret — set the same value on each Mac. Never sent over the wire (HMAC-signed).</div>
         </div>
-        <input type="checkbox" id="s-TELEPORT_NETWORK_ENABLED" onchange="toggleTeleportNet(this.checked)" style="width:15px;height:15px;cursor:pointer;accent-color:var(--blue)">
+        <div style="display:flex;gap:6px;align-items:center">
+          <input id="s-TELEPORT_TOKEN" placeholder="(none)" style="background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:5px 8px;font-size:11px;font-family:var(--mono);width:180px">
+          <button onclick="genTeleportToken()" style="background:var(--blue);color:#fff;border:none;border-radius:4px;padding:4px 8px;font-size:11px;cursor:pointer;font-family:inherit">Generate</button>
+          <button onclick="copyTeleportToken()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:4px 8px;font-size:11px;cursor:pointer;font-family:inherit">Copy</button>
+        </div>
       </div>
-      <div id="teleport-net-fields" style="display:none">
-        <div class="setting-row">
-          <div>
-            <div class="setting-label">Pairing token</div>
-            <div class="setting-hint">Shared secret — set the same value on each Mac. Never sent over the wire (HMAC-signed).</div>
-          </div>
-          <div style="display:flex;gap:6px;align-items:center">
-            <input id="s-TELEPORT_TOKEN" placeholder="(none)" style="background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:5px 8px;font-size:11px;font-family:var(--mono);width:180px">
-            <button onclick="genTeleportToken()" style="background:var(--blue);color:#fff;border:none;border-radius:4px;padding:4px 8px;font-size:11px;cursor:pointer;font-family:inherit">Generate</button>
-            <button onclick="copyTeleportToken()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:4px 8px;font-size:11px;cursor:pointer;font-family:inherit">Copy</button>
-          </div>
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Peer addresses</div>
+          <div class="setting-hint">Reach Macs directly by IP/host — works across subnets, VPN/Tailscale, or when discovery is off. Comma-separated host[:port]. This is the reliable manual path.</div>
         </div>
-        <div class="setting-row">
-          <div>
-            <div class="setting-label">Static peers</div>
-            <div class="setting-hint">Macs not on mDNS (other subnet/VPN), comma-separated host[:port]</div>
-          </div>
-          <input id="s-TELEPORT_STATIC_PEERS" placeholder="10.0.0.50, macmini.local:47290" style="background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:5px 8px;font-size:11px;font-family:var(--mono);width:220px">
+        <input id="s-TELEPORT_STATIC_PEERS" placeholder="10.0.0.50, macmini.local:47290" style="background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:5px 8px;font-size:11px;font-family:var(--mono);width:240px">
+      </div>
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Discovered on LAN</div>
+          <div class="setting-hint">Macs advertising teleport on this network (auto-found via Bonjour). Both Macs need "Advertise on LAN" on.</div>
         </div>
-        <div class="setting-row">
-          <div>
-            <div class="setting-label">Discovered peers</div>
-            <div class="setting-hint">Other restwalker Macs visible right now</div>
-          </div>
-          <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
+        <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
             <div id="teleport-peers" style="font-size:11px;color:var(--muted);text-align:right">—</div>
-            <button onclick="loadTeleportPeers()" style="background:var(--bg);border:1px solid var(--border);color:var(--muted);border-radius:4px;padding:3px 8px;font-size:11px;cursor:pointer;font-family:inherit">Refresh</button>
+            <button onclick="loadTeleportPeers()" style="background:var(--blue);color:#fff;border:none;border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer;font-family:inherit">⟳ Auto-discover</button>
           </div>
         </div>
+      </div>
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Advertise on LAN</div>
+          <div class="setting-hint">Let other Macs discover AND pull conversations from this Mac. Trusted networks only; needs the daemon on 0.0.0.0 and a daemon restart to take effect.</div>
+        </div>
+        <input type="checkbox" id="s-TELEPORT_NETWORK_ENABLED" style="width:15px;height:15px;cursor:pointer;accent-color:var(--blue)">
       </div>
     </div>
     </div><!-- /tab-teleport -->
@@ -1093,13 +1092,10 @@ function settingsTab(name) {
     document.getElementById('tab-' + t).style.display = t === name ? 'block' : 'none';
     document.getElementById('stab-' + t).classList.toggle('active', t === name);
   }
-  if (name === 'teleport' && document.getElementById('s-TELEPORT_NETWORK_ENABLED').checked) loadTeleportPeers();
+  if (name === 'teleport') loadTeleportPeers();   // browse is always-on, so this works regardless of "Advertise on LAN"
 }
 
 // ── Teleport settings helpers ─────────────────────────────────────────────────
-function toggleTeleportNet(enabled) {
-  document.getElementById('teleport-net-fields').style.display = enabled ? 'block' : 'none';
-}
 function genTeleportToken() {
   const b = new Uint8Array(24); crypto.getRandomValues(b);
   document.getElementById('s-TELEPORT_TOKEN').value = Array.from(b, x => x.toString(16).padStart(2,'0')).join('');
@@ -1115,7 +1111,7 @@ async function loadTeleportPeers() {
     const d = await fetch('/teleport/peers').then(r => r.json());
     el.textContent = (d.peers && d.peers.length)
       ? d.peers.map(p => `${p.name} (${p.host}:${p.port})`).join(', ')
-      : (d.enabled ? 'none found yet' : 'discovery off');
+      : 'none found on this LAN';
   } catch { el.textContent = '—'; }
 }
 
@@ -1131,8 +1127,7 @@ async function openSettings() {
     if (!el) continue;
     if (el.type === 'checkbox') {
       el.checked = cfg[k] === '1';
-      if (k === 'CODING_WINDOW_ENABLED')    toggleCodingWindow(el.checked);
-      if (k === 'TELEPORT_NETWORK_ENABLED') { toggleTeleportNet(el.checked); if (el.checked) loadTeleportPeers(); }
+      if (k === 'CODING_WINDOW_ENABLED') toggleCodingWindow(el.checked);
       continue;
     }
     // TASK_TIMEOUT_S is stored in seconds — slider is also seconds, no conversion

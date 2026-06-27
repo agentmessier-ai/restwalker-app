@@ -153,8 +153,7 @@ await plugins.loadPersistedExternal()
 // Teleport LAN discovery — opt-in. Cross-folder teleport works regardless; this
 // only advertises/browses the network when explicitly enabled.
 setMdnsLogger({ info: (s) => app.log.info(s), warn: (s) => app.log.warn(s) })
-if (db.getSettings().TELEPORT_NETWORK_ENABLED === '1') {
-  startMdns(PORT, process.env.npm_package_version ?? 'dev')
-} else {
-  app.log.info('[teleport] cross-folder enabled; network discovery off (TELEPORT_NETWORK_ENABLED=0)')
-}
+// Always browse for peers (passive, lets Auto-discover work); only advertise +
+// accept inbound pulls when network teleport is explicitly enabled.
+const teleportAdvertise = db.getSettings().TELEPORT_NETWORK_ENABLED === '1'
+startMdns(PORT, process.env.npm_package_version ?? 'dev', teleportAdvertise)
