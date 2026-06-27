@@ -330,6 +330,24 @@ server.tool(
   async () => text(await api('GET', '/teleport/peers')),
 )
 
+server.tool(
+  'teleport_handoff',
+  'Get a ready-to-run signed request to pull a conversation from a PEER Mac directly. macOS blocks the restwalker daemon from reaching the LAN, so for a remote `host` you must: call this to get a `curl` command, then RUN it with the Bash tool yourself (your Bash has Local Network permission), then read the JSON it returns. The daemon signs it — you never see the token.',
+  {
+    host:    z.string().describe('Saved peer host/ip (must be a known peer)'),
+    folder:  z.string().describe('Folder name/path on the peer'),
+    kind:    z.enum(['conversation', 'list', 'folders']).optional().describe('default conversation'),
+    window:  z.string().optional().describe('e.g. 1h, 6h, 24h'),
+    session: z.string().optional().describe('full session id (else most recent in window)'),
+    full:    z.boolean().optional(),
+  },
+  async ({ host, folder, kind, window, session, full }) =>
+    text(await api('GET', '/teleport/handoff', undefined, {
+      host, folder, ...(kind ? { kind } : {}), ...(window ? { window } : {}),
+      ...(session ? { session } : {}), ...(full ? { full: '1' } : {}),
+    })),
+)
+
 // ── Settings ───────────────────────────────────────────────────────────────────
 
 server.tool(
