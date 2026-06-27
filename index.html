@@ -1126,7 +1126,8 @@ async function testTeleportPeer() {
     const d = await fetch('http://' + ip + ':' + port + '/teleport/ping', { signal: ctrl.signal }).then(r => r.json());
     clearTimeout(timer);
     if (d && d.service === 'restwalker') {
-      st.innerHTML = '✓ restwalker v' + d.version + ' @ ' + d.host + (d.teleport_network ? '' : ' — ⚠ peer’s "Advertise on LAN" is off');
+      // peer response is untrusted (arbitrary IP) — textContent only, never innerHTML
+      st.textContent = '✓ restwalker v' + String(d.version ?? '?').slice(0,40) + ' @ ' + String(d.host ?? '?').slice(0,253) + (d.teleport_network ? '' : ' — ⚠ peer’s "Advertise on LAN" is off');
       st.style.color = 'var(--green)';
       st.dataset.peer = ip + ':' + port;
       addBtn.disabled = false; addBtn.style.opacity = '1';
