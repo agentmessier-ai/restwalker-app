@@ -4,15 +4,19 @@
 
 ## Problem
 
-Claude Code stores conversations **per project folder** at
-`~/.claude/projects/<encoded-cwd>/<session-uuid>.jsonl` (one JSON message per line).
-That siloing means:
+Claude Code ties each conversation to the **project folder it ran in**
+(`~/.claude/projects/<encoded-cwd>/<session-uuid>.jsonl`, one JSON message per line). When you
+juggle several projects — or several machines — that backfires in two everyday ways:
 
-- You asked Claude something in `~/dev/foo`, then opened Claude in `~/dev/bar` and lost that thread.
-- You worked on a different Mac and can't pick the conversation back up here.
+- **Right project, wrong folder.** With multiple projects on the go, it's easy to start Claude
+  Code in the wrong directory. The thread you actually want is sitting in *another* folder, out
+  of reach of the session you're now in.
+- **Same project, different computer.** You start something on one Mac and continue on another —
+  but the conversation, and all the context you built up, stayed behind on the first machine.
 
-**Teleport** finds the relevant conversation — by folder name and a time window — and pulls it
-into the current session, locally or from another restwalker on the LAN.
+Either way you lose the thread and end up re-explaining everything. **Teleport** restores the
+continuity: name the folder and a time window, and it pulls that recent conversation into your
+current session — from this Mac, or from another restwalker on the LAN.
 
 ## Goals
 
