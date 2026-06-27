@@ -23,6 +23,8 @@ it only ever spends quota you weren't going to use — and never eats into your 
 Runs as a LaunchAgent on port **47290** with a SQLite database, a dashboard UI, a REST API
 (OpenAPI 3.0), and an MCP server for Claude Code.
 
+> **macOS only for now** — Windows and Linux support is on the way.
+
 ![RestWalker dashboard](docs/screenshot-dashboard.png)
 
 ## Quick start
@@ -73,7 +75,7 @@ thresholds. Everything below is reference; day to day, the line above is all you
 > Most people want the **Quick start** above (npm + plugin). This section is the from-source
 > install and the Node/host/port options.
 
-**Requirements:** macOS, Node.js 20+, Claude Code CLI (`claude login` must have been run — restwalker reads your credentials from the macOS Keychain)
+**Requirements:** macOS (Windows/Linux on the way), Node.js 20+, Claude Code CLI (`claude login` must have been run — restwalker reads your credentials from the macOS Keychain)
 
 ```bash
 git clone https://github.com/agentmessier-ai/restwalker-app.git
