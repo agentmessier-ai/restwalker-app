@@ -1,0 +1,25 @@
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Python (legacy)
+__pycache__/
+*.pyc
+*.pyo
+
+# Env / secrets
+.env
+.env.*
+*.local
+.npmrc
+
+# OS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+
+# Tooling artifacts
+.playwright-mcp/

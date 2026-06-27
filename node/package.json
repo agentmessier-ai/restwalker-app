@@ -1,0 +1,39 @@
+{
+  "name": "restwalker",
+  "version": "1.0.0",
+  "description": "While you rest, it walks — idle-time Claude task runner",
+  "type": "module",
+  "main": "app.ts",
+  "scripts": {
+    "start": "tsx app.ts",
+    "dev": "tsx watch app.ts",
+    "test": "node --import tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.106.0",
+    "@fastify/static": "^9.0.0",
+    "@fastify/swagger": "^9.7.0",
+    "@fastify/swagger-ui": "^6.0.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "better-queue": "^3.8.12",
+    "better-queue-sqlite": "^1.0.7",
+    "better-sqlite3": "^11.0.0",
+    "bonjour-service": "^1.4.2",
+    "chokidar": "^4.0.0",
+    "drizzle-orm": "^0.45.2",
+    "fastify": "^5.0.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/better-queue": "^3.8.6",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/chokidar": "^1.7.5",
+    "@types/node": "^26.0.1",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
+  },
+  "overrides": {
+    "tar": "^7.5.17",
+    "uuid": "^11"
+  }
+}

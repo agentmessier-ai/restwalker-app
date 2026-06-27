@@ -1,0 +1,41 @@
+{
+  "name": "@agentmessier/restwalker",
+  "version": "1.1.3",
+  "description": "While you rest, it walks \u2014 idle-time Claude task runner for Mac",
+  "type": "module",
+  "bin": {
+    "restwalker": "bin/restwalker.js"
+  },
+  "files": [
+    "bin/",
+    "node/",
+    "index.html",
+    "install.sh",
+    "uninstall.sh",
+    "README.md",
+    "examples/",
+    "plugin/"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "os": [
+    "darwin"
+  ],
+  "keywords": [
+    "claude",
+    "anthropic",
+    "mcp",
+    "task-runner",
+    "daemon",
+    "idle",
+    "background"
+  ],
+  "author": "agentmessier-ai",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/agentmessier-ai/restwalker-app.git"
+  },
+  "homepage": "https://github.com/agentmessier-ai/restwalker-app#readme"
+}

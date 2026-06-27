@@ -1,0 +1,19 @@
+{
+  "name": "restwalker",
+  "owner": {
+    "name": "agentmessier-ai"
+  },
+  "description": "RestWalker \u2014 idle-time Claude task runner. Skills to queue and manage background tasks from any Claude Code chat.",
+  "version": "0.3.0",
+  "plugins": [
+    {
+      "name": "restwalker",
+      "source": "./plugin",
+      "description": "Queue idle-time RestWalker tasks, check status/budget, and review results \u2014 by voice from any chat.",
+      "version": "0.3.0",
+      "author": {
+        "name": "agentmessier-ai"
+      }
+    }
+  ]
+}
