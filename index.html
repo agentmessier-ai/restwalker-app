@@ -585,8 +585,8 @@
       </div>
       <div class="setting-row">
         <div>
-          <div class="setting-label">Pairing token</div>
-          <div class="setting-hint">Shared secret — set the same value on each Mac. Never sent over the wire (HMAC-signed).</div>
+          <div class="setting-label">Pairing token <span style="color:var(--muted);font-weight:400">(optional)</span></div>
+          <div class="setting-hint">If set, both Macs must share it (HMAC-signed, never sent over the wire). <b>Leave blank to allow any Mac on the LAN — trusted networks only.</b></div>
         </div>
         <div style="display:flex;gap:6px;align-items:center">
           <input id="s-TELEPORT_TOKEN" placeholder="(none)" style="background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:5px 8px;font-size:11px;font-family:var(--mono);width:180px">

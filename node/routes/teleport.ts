@@ -69,14 +69,16 @@ async function proxy(base: string, path: string, query: Record<string, string | 
 }
 
 export default async function teleportRoutes(app: FastifyInstance) {
-  // Gate non-localhost access: network enabled + a fresh, valid HMAC signature
-  // (the shared token is never transmitted; the signature proves possession).
+  // Gate non-localhost access: network must be enabled. If a TELEPORT_TOKEN is
+  // set, require a fresh valid HMAC signature (token never transmitted). If the
+  // token is left blank, auth is DISABLED — open on the LAN to anyone who can
+  // reach the port (trusted networks only).
   app.addHook('preHandler', async (req, reply) => {
     if (!req.url.startsWith('/teleport')) return
     if (isLocalReq(req)) return
     const cfg = db.getSettings()
     if (cfg.TELEPORT_NETWORK_ENABLED !== '1') return reply.code(403).send({ error: 'teleport network access disabled on this host' })
-    if (!cfg.TELEPORT_TOKEN) return reply.code(401).send({ error: 'teleport token not configured on this host' })
+    if (!cfg.TELEPORT_TOKEN) return   // token auth disabled — open on the LAN (trusted-network only)
     const ts  = req.headers['x-teleport-ts']  as string | undefined
     const sig = req.headers['x-teleport-sig'] as string | undefined
     if (!ts || !sig) return reply.code(401).send({ error: 'missing teleport signature' })
