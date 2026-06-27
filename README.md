@@ -253,9 +253,11 @@ See [`plugin/README.md`](plugin/README.md) for details.
 
 ## Teleport
 
-Carry a recent Claude Code conversation from **another folder** — or **another Mac on your LAN** —
-into your current session. You moved machines (or repos) and want the context you built up
-elsewhere: just ask the agent.
+Claude Code ties each conversation to the folder it ran in, which bites when you're juggling
+projects or machines — you started Claude in the **wrong folder**, or began on **another Mac**,
+and the thread you want is stranded elsewhere. Teleport carries it over for continuity: name a
+folder and a time window and it pulls that recent conversation into your current session — from
+this Mac, or from another Mac on your LAN. Just ask the agent.
 
 - **Same Mac, other folder** — *"what was I doing in `myproject`"* → pulls the recent turns from
   that folder's Claude session.
