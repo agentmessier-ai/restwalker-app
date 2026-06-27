@@ -196,9 +196,10 @@ Conversations contain secrets, code, and private context — so the network path
   3. A valid **HMAC signature**: `x-teleport-sig = HMAC(TELEPORT_TOKEN, method+url+ts)`
      with a fresh `x-teleport-ts` (±5 min). The shared **`TELEPORT_TOKEN`** is *never
      transmitted* — only proof of possession is. Pair two Macs by copying the token.
-- **No SSRF**: the daemon only ever proxies to a peer **actually discovered via mDNS**,
-  using that peer's *advertised* address. An arbitrary `host` string is rejected (400) —
-  the token is never attached to a caller-controlled URL.
+- **No SSRF**: the daemon only ever proxies to a **known peer** — one discovered via mDNS
+  (its advertised address) or in the operator's `TELEPORT_STATIC_PEERS` allowlist. An
+  arbitrary `host` string is rejected (400) — the token is never attached to a
+  caller-controlled URL.
 - `/teleport/*` is **read-only** (no Bash, no writes). Localhost requests skip auth;
   remote requests require the signature.
 - Residual (documented, acceptable for v1): plaintext HTTP transport of the *response*
@@ -247,3 +248,50 @@ foo"), `teleport(folder="foo")` returns the latest slice directly.
    the MCP agent picks and calls `teleport` with the chosen `session`. No server-side guessing.
 5. **Discovery — mDNS/Bonjour.** Advertise/browse `_restwalker._tcp` via `bonjour-service`
    (pure-JS, no native build). A static peer list in settings remains as a fallback.
+
+## Testing & findings (cross-folder + cross-Mac)
+
+### Local (cross-folder) — ✅ verified on real data
+- 36 project folders discovered from `~/.claude/projects`; fuzzy match (`lang` → `LangAlpha`).
+- `teleport folder=agentnet window=1h` → 133 raw turns with real dialogue + tool calls.
+- Default window resolves to exactly 6h; `teleport_list` → pick a `session` → exact session returned.
+- Folder roster is ~30s-cached (`listProjectFolders`); conversation *content* is read fresh per call.
+- Prerequisite: a folder only appears once Claude Code has had a session in it (creates the
+  `~/.claude/projects/<encoded>/*.jsonl` with a `cwd`). `mkdir` alone shows nothing.
+
+### Cross-Mac — ✅ feature verified end-to-end (with a macOS caveat, below)
+Test setup: deployed the branch to the peer Mac, ran a teleport daemon there on a separate
+port (`:47280`, temp DB) bound `HOST=0.0.0.0` with `TELEPORT_NETWORK_ENABLED=1` + a shared
+token; on the client, addressed the peer **by IP** via `TELEPORT_STATIC_PEERS=10.0.0.181:47280`
+(mDNS bypassed). Results:
+- Pulled **54 folders** and a **290-turn** agentnet conversation from the peer.
+- Transport: client → proxy → peer, **HMAC-signed** (token never on the wire); peer
+  authenticated and served; SSRF guard intact (arbitrary host → 400).
+
+### ⚠️ Known limitation — macOS Local Network privacy blocks the background daemon
+On modern macOS, a **launchd background process is not granted "Local Network" access by
+default**, so the LaunchAgent daemon's outbound connections to LAN peers (`10.0.0.x`) fail
+with `fetch failed` — while `localhost` and the internet still work. In testing, cross-Mac
+**only worked through a shell-launched daemon** (Terminal has the permission); the LaunchAgent
+daemon could not reach the peer.
+
+Implications / options for production cross-Mac:
+- Grant the daemon Local-Network access (awkward for launchd — no UI prompt fires for a
+  background agent), or run the daemon from a context that already has it, or
+- Document cross-Mac as "run the client teleport from a granted context." Local cross-folder
+  is unaffected (no LAN involved).
+
+### Observability — intentionally minimal
+- The **only teleport UI** is Settings → Teleport (config + a live discovered-peers list;
+  static peers appear there too). There is **no dashboard activity/history view** — teleport
+  results go back to the calling Claude chat, not the dashboard.
+- Request logging for `/teleport/*` is off by default; only mDNS peer up/down and proxy errors
+  reach `~/.restwalker/restwalker.log`. A "recent teleports" panel and/or per-call logging are
+  possible follow-ups, not built.
+
+### Not found in testing
+The user's interactive `~/dev/restwalker` coding thread was **not** on the tested peer
+(`10.0.0.181` / user `missa`): the 28 "restwalker" matches there were all task-runner
+**workspace** sessions (each opens with the injected "Restwalker Tagging Protocol"), not
+interactive dev-folder conversations. The real thread lives on a different Mac — teleport
+would reach it the same way once that Mac runs a teleport-enabled, network-on daemon.
