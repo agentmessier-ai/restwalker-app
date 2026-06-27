@@ -399,7 +399,15 @@ tail -f ~/.restwalker/restwalker.log
 ./uninstall.sh
 ```
 
-Stops the service, removes the LaunchAgent, and optionally deletes `~/.restwalker/` (DB + logs).
+It removes everything the installer set up:
+
+- stops the service + removes the LaunchAgent (`~/Library/LaunchAgents/com.restwalker.plist`)
+- removes any standalone `restwalker` MCP registration from Claude Code (best-effort)
+
+Your **data is kept by default** — `~/.restwalker/` (the DB, logs, and your task
+`workspace/` artifacts) is only deleted if you confirm the prompt. The script also reminds you to
+remove the plugin in Claude Code (`/plugin uninstall restwalker@restwalker`) and to delete the app
+directory if you cloned it.
 
 ## Acknowledgements
 
