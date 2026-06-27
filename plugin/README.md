@@ -19,9 +19,9 @@ restwalker install                         # daemon (LaunchAgent) + node deps
 After that the plugin's MCP server (`restwalker mcp`) starts on its own when the plugin is
 enabled. If RestWalker isn't connected, the skills will tell you.
 
-> Already registered the MCP standalone (via `claude mcp add`, which `restwalker install`
-> also offers)? That works too — the skills accept both the plugin-bundled and standalone
-> tool names. Pick one to avoid duplicate tools in the menu.
+> Already registered the MCP standalone via `claude mcp add`? That works too — the skills
+> accept both the plugin-bundled and standalone tool names. Just pick one (don't run both, or
+> you'll get duplicate tools in the menu).
 
 ## Install the plugin
 

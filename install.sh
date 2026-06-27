@@ -130,54 +130,21 @@ PLIST
 launchctl unload "$PLIST_DST" 2>/dev/null || true
 launchctl load "$PLIST_DST"
 
-# ── Register MCP with Claude Code ─────────────────────────────────────────────
-if command -v claude &>/dev/null; then
-  echo ""
-  echo "┌─ Claude Code MCP ──────────────────────────────────────────────────────────┐"
-  echo "│ The restwalker MCP server lets Claude Code queue tasks, check status,      │"
-  echo "│ list projects/models, and manage providers — directly from any chat,       │"
-  echo "│ without opening the dashboard.                                             │"
-  echo "│                                                                            │"
-  echo "│ Scopes:                                                                    │"
-  echo "│   user    — available in every Claude Code session on this machine         │"
-  echo "│   project — available only when Claude Code is opened in a specific folder │"
-  echo "└────────────────────────────────────────────────────────────────────────────┘"
-  echo ""
-
-  read -r -p "  Register restwalker MCP with Claude Code? [Y/n] " yn
-  case "${yn:-Y}" in
-    [Yy]*)
-      echo ""
-      echo "  Scope options:"
-      echo "    1) user    — all sessions on this machine (recommended)"
-      echo "    2) project — only in the current directory"
-      echo ""
-      read -r -p "  Choose scope [1/2, default 1]: " scope_choice
-      case "${scope_choice:-1}" in
-        2)
-          MCP_SCOPE="project"
-          ;;
-        *)
-          MCP_SCOPE="user"
-          ;;
-      esac
-
-      claude mcp remove restwalker 2>/dev/null || true
-      claude mcp add --scope "$MCP_SCOPE" restwalker -- "$NODE" "$TSX" "$INSTALL_DIR/node/mcp.ts"
-      echo "  ✓ MCP registered (scope: $MCP_SCOPE)"
-      ;;
-    *)
-      echo "  Skipping MCP registration."
-      echo "  To add it later:"
-      echo "    claude mcp add --scope user restwalker -- $NODE $TSX $INSTALL_DIR/node/mcp.ts"
-      ;;
-  esac
-else
-  echo ""
-  echo "  Note: Claude Code CLI not found — skipping MCP registration."
-  echo "  Install it and then run:"
-  echo "    claude mcp add --scope user restwalker -- node $TSX $INSTALL_DIR/node/mcp.ts"
-fi
+# ── Use it from Claude Code (plugin = MCP + skills) ───────────────────────────
+# The plugin bundles the MCP server, so we don't register a standalone MCP here —
+# doing both would put duplicate tools in Claude Code's menu.
+echo ""
+echo "── Use it from Claude Code ──────────────────────────────────────────────────"
+echo ""
+echo "  Add the plugin — it bundles the MCP server AND the /restwalker:* skills, so"
+echo "  you can just say \"have restwalker do this tonight\". In Claude Code:"
+echo ""
+echo "    /plugin marketplace add agentmessier-ai/restwalker-app"
+echo "    /plugin install restwalker@restwalker"
+echo ""
+echo "  Advanced — want the MCP without the plugin? Register it standalone instead"
+echo "  (don't do both — you'd get duplicate tools):"
+echo "    claude mcp add --scope user restwalker -- $NODE $TSX $INSTALL_DIR/node/mcp.ts"
 
 SHOWN_HOST="$HOST"; [ "$HOST" = "0.0.0.0" ] && SHOWN_HOST="localhost"
 echo ""

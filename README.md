@@ -1,14 +1,56 @@
 # restwalker
 
-> While you rest, it walks.
+> Your Max plan's tokens refill on a clock and expire unused. RestWalker spends the leftovers on
+> the work you keep meaning to get to.
 
-Idle-time Claude task runner — a Mac background service that queues and runs Claude Code agent tasks during your off-hours, gated by live Claude usage so it never burns your interactive budget.
+Anthropic's models are powerful and the **Max plan is a real monthly cost** — but its quota refills
+in rolling windows (5-hour and weekly), and most cycles you never burn through it before the next
+one resets. That capacity you already paid for just evaporates. **RestWalker reclaims it:** a Mac
+background service that runs Claude Code agent tasks during your idle time, gated by live usage so
+it only ever spends quota you weren't going to use — and never eats into your interactive budget.
 
-**Don't waste your Max plan — put idle tokens to work.**
+**What it does**
 
-Runs as a LaunchAgent on port **47290** with a SQLite database, a dashboard UI, a REST API (OpenAPI 3.0), and an MCP server for Claude Code.
+- **Defer in a word.** Mid-flow you spot something important but not urgent — just say
+  *"have restwalker do this tonight."* It captures a self-contained task and runs it when things
+  are quiet.
+- **Results you can actually use.** Tasks declare the **artifacts** they produce and can generate
+  ready-to-install **skills**, packaged so the output is easy to read, review, and reuse — not a
+  wall of transcript to dig through.
+- **Teleport.** Carry a recent conversation over from another folder — or another Mac running
+  restwalker — when you started Claude in the wrong project, or switched computers.
+
+Runs as a LaunchAgent on port **47290** with a SQLite database, a dashboard UI, a REST API
+(OpenAPI 3.0), and an MCP server for Claude Code.
 
 ![RestWalker dashboard](docs/screenshot-dashboard.png)
+
+## Quick start
+
+```bash
+npm install -g @agentmessier/restwalker   # the CLI
+restwalker install                         # daemon (LaunchAgent) — the plugin below wires up the MCP
+```
+
+Then, in Claude Code, add the plugin:
+
+```
+/plugin marketplace add agentmessier-ai/restwalker-app
+/plugin install restwalker@restwalker
+```
+
+That's the whole setup. From here you **just talk to Claude Code** — nothing to memorize, no
+dashboard required:
+
+| Say something like… | What happens |
+|---|---|
+| *"have restwalker do this tonight: …"* | queues an important-but-not-urgent task for idle time |
+| *"what's in my queue?"* · *"how much budget left?"* | status + next idle window |
+| *"what did last night's task produce?"* | the result + its artifacts/files |
+| *"what was I doing in `myproject`?"* · *"pull the conversation from my other Mac"* | teleport |
+
+The dashboard at **http://localhost:47290** is **optional** — open it to watch usage/gates or tweak
+thresholds. Everything below is reference; day to day, the line above is all you need.
 
 ## How it works
 
@@ -28,6 +70,9 @@ Runs as a LaunchAgent on port **47290** with a SQLite database, a dashboard UI, 
 
 ## Install
 
+> Most people want the **Quick start** above (npm + plugin). This section is the from-source
+> install and the Node/host/port options.
+
 **Requirements:** macOS, Node.js 20+, Claude Code CLI (`claude login` must have been run — restwalker reads your credentials from the macOS Keychain)
 
 ```bash
@@ -39,7 +84,7 @@ cd restwalker
 The installer:
 - Installs Node dependencies
 - Installs and starts the LaunchAgent (auto-restarts on login)
-- Interactively offers to register the MCP server with Claude Code
+- Points you to the plugin (which provides the MCP + skills); no standalone MCP is auto-registered, so there's nothing to un-pick later
 
 Open `http://localhost:47290` to confirm it's running.
 
@@ -80,9 +125,10 @@ Host and port are **boot-time** settings: a running server can't rebind its sock
 change only takes effect after the reload above (and if you changed the port, reopen the
 dashboard on the new one).
 
-## Dashboard
+## Dashboard (optional)
 
-`http://localhost:47290`
+`http://localhost:47290` — for when you want to *see* things or tune them; you can run RestWalker
+entirely from chat without ever opening it.
 
 - Live gate status, 5h and weekly usage, next window
 - 48h trend chart with threshold overlays and coding-window shading
@@ -108,15 +154,17 @@ Each task also supports (in the form's "Advanced" section, the Edit & Re-queue p
 
 Timeouts everywhere are in **seconds**. A failed recurring run still schedules its next occurrence, so one transient failure doesn't kill a daily task.
 
-### Adding tasks via MCP (recommended)
+### Adding tasks (just ask)
 
-The easiest way to add tasks is from Claude Code itself:
+The easy path is the plugin skill — in Claude Code, say:
 
 ```
-You have an MCP server called restwalker. Add a task to run nightly: ...
+have restwalker do this tonight: <what you want done>
 ```
 
-Claude Code will call `queue_add` with the right parameters. You can also use the dashboard form or the REST API directly.
+`/restwalker:defer` turns that into a self-contained task and queues it. You don't name tools or
+fill a form. (Without the plugin, *"use the restwalker MCP to add a task…"* calls `queue_add`
+directly; the dashboard form and REST API work too — they're just more steps.)
 
 ### Example tasks
 
@@ -205,6 +253,9 @@ The default provider — **`claude -p`** — runs `claude --print --permission-m
 
 ## MCP server
 
+> **Reference — you don't call these by name.** The plugin skills (Quick start) translate plain
+> requests into these tools; this list is for power use and integration.
+
 The MCP server (`node/mcp.ts`) exposes 27 tools for Claude Code via stdio transport:
 
 | Group | Tools |
@@ -221,12 +272,13 @@ The MCP server (`node/mcp.ts`) exposes 27 tools for Claude Code via stdio transp
 `queue_add` and `task_prompt_save` derive their input schemas from the live OpenAPI spec at
 startup — adding a field to the REST route surfaces it in the MCP tool automatically.
 
-The installer registers the MCP for you. To register manually, replace `~/dev/restwalker`
-with your clone path:
+**If you installed the plugin (Quick start), the MCP is already wired up — skip this.**
+Registering it standalone *and* enabling the plugin gives you **duplicate tools** in the menu;
+pick one. To register standalone instead of using the plugin (advanced):
 
 ```bash
 claude mcp add --scope user restwalker -- restwalker mcp
-# or, without a global install:
+# or, without a global install (replace the path with your clone):
 claude mcp add --scope user restwalker -- \
   node ~/dev/restwalker/node/node_modules/.bin/tsx ~/dev/restwalker/node/mcp.ts
 ```
@@ -347,7 +399,15 @@ tail -f ~/.restwalker/restwalker.log
 ./uninstall.sh
 ```
 
-Stops the service, removes the LaunchAgent, and optionally deletes `~/.restwalker/` (DB + logs).
+It removes everything the installer set up:
+
+- stops the service + removes the LaunchAgent (`~/Library/LaunchAgents/com.restwalker.plist`)
+- removes any standalone `restwalker` MCP registration from Claude Code (best-effort)
+
+Your **data is kept by default** — `~/.restwalker/` (the DB, logs, and your task
+`workspace/` artifacts) is only deleted if you confirm the prompt. The script also reminds you to
+remove the plugin in Claude Code (`/plugin uninstall restwalker@restwalker`) and to delete the app
+directory if you cloned it.
 
 ## Acknowledgements
 
