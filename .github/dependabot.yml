@@ -1,0 +1,8 @@
+version: 2
+updates:
+  # Keep GitHub Actions (incl. SHA-pinned third-party actions) up to date via
+  # reviewable PRs instead of silent tag mutation.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
