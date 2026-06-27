@@ -596,39 +596,6 @@
       </div>
       <div class="setting-row">
         <div>
-          <div class="setting-label">Peer addresses</div>
-          <div class="setting-hint">Reach Macs directly by IP/host — works across subnets, VPN/Tailscale, or when discovery is off. Comma-separated host[:port]. This is the reliable manual path.</div>
-        </div>
-        <input id="s-TELEPORT_STATIC_PEERS" placeholder="10.0.0.50, macmini.local:47290" style="background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:5px 8px;font-size:11px;font-family:var(--mono);width:240px">
-      </div>
-      <div class="setting-row">
-        <div>
-          <div class="setting-label">Add &amp; test a peer</div>
-          <div class="setting-hint">Enter another Mac's IP and port, Test (your browser pings it directly), then Add to the list above.</div>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:5px;align-items:flex-end">
-          <div style="display:flex;gap:6px;align-items:center">
-            <input id="tp-add-ip" placeholder="10.0.0.42" style="background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:5px 8px;font-size:11px;font-family:var(--mono);width:110px">
-            <input id="tp-add-port" placeholder="47290" value="47290" style="background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:5px 8px;font-size:11px;font-family:var(--mono);width:62px">
-            <button onclick="testTeleportPeer()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:4px 9px;font-size:11px;cursor:pointer;font-family:inherit">Test</button>
-            <button id="tp-add-btn" onclick="addTeleportPeer()" disabled style="background:var(--blue);color:#fff;border:none;border-radius:4px;padding:4px 9px;font-size:11px;cursor:pointer;font-family:inherit;opacity:.5">Add</button>
-          </div>
-          <div id="tp-add-status" style="font-size:11px;color:var(--muted);text-align:right;min-height:14px"></div>
-        </div>
-      </div>
-      <div class="setting-row">
-        <div>
-          <div class="setting-label">Discovered on LAN</div>
-          <div class="setting-hint">Macs advertising teleport on this network (auto-found via Bonjour). Both Macs need "Advertise on LAN" on.</div>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
-            <div id="teleport-peers" style="font-size:11px;color:var(--muted);text-align:right">—</div>
-            <button onclick="scanTeleportLan()" style="background:var(--blue);color:#fff;border:none;border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer;font-family:inherit">⟳ Auto-discover</button>
-          </div>
-        </div>
-      </div>
-      <div class="setting-row">
-        <div>
           <div class="setting-label">Advertise on LAN</div>
           <div class="setting-hint">Let other Macs discover AND pull conversations from this Mac. Trusted networks only; needs the daemon on 0.0.0.0 and a daemon restart to take effect.</div>
         </div>
@@ -1095,7 +1062,7 @@ function buildHourSelects() {
   });
 }
 
-const SETTING_KEYS = ['CODING_WINDOW_ENABLED','CODING_START_H','CODING_END_H','TIMEZONE','FIVE_HOUR_PAUSE_PCT','WEEKLY_RESERVE_PCT','WEEKLY_HARD_STOP_PCT','POLL_INTERVAL_MIN','CACHE_STALE_MIN','TASK_TIMEOUT_S','TELEPORT_DEFAULT_WINDOW','TELEPORT_NETWORK_ENABLED','TELEPORT_TOKEN','TELEPORT_STATIC_PEERS'];
+const SETTING_KEYS = ['CODING_WINDOW_ENABLED','CODING_START_H','CODING_END_H','TIMEZONE','FIVE_HOUR_PAUSE_PCT','WEEKLY_RESERVE_PCT','WEEKLY_HARD_STOP_PCT','POLL_INTERVAL_MIN','CACHE_STALE_MIN','TASK_TIMEOUT_S','TELEPORT_DEFAULT_WINDOW','TELEPORT_NETWORK_ENABLED','TELEPORT_TOKEN'];
 
 function toggleCodingWindow(enabled) {
   document.getElementById('coding-window-times').style.display = enabled ? 'block' : 'none';
@@ -1107,92 +1074,9 @@ function settingsTab(name) {
     document.getElementById('tab-' + t).style.display = t === name ? 'block' : 'none';
     document.getElementById('stab-' + t).classList.toggle('active', t === name);
   }
-  if (name === 'teleport') loadTeleportPeers();   // browse is always-on, so this works regardless of "Advertise on LAN"
 }
 
 // ── Teleport settings helpers ─────────────────────────────────────────────────
-// Auto-discover runs in the BROWSER (the daemon can't reach the LAN). The daemon
-// just tells us which /24 to scan; we ping each host's /teleport/ping ourselves.
-async function scanTeleportLan() {
-  const port = (document.getElementById('tp-add-port').value.trim() || '47290');
-  const el = document.getElementById('teleport-peers');
-  el.textContent = 'scanning the LAN on :' + port + ' …'; el.style.color = 'var(--muted)';
-  let net;
-  try { net = await fetch('/teleport/local-net').then(r => r.json()); }
-  catch { el.textContent = 'scan failed (could not read local network)'; return; }
-  const prefixes = net.prefixes || []; const selfIps = new Set(net.self_ips || []);
-  if (!prefixes.length) { el.textContent = 'no private network found'; return; }
-  const found = [];
-  for (const pre of prefixes) {
-    const tasks = [];
-    for (let i = 1; i <= 254; i++) {
-      const ip = pre + '.' + i; if (selfIps.has(ip)) continue;
-      tasks.push((async () => {
-        try {
-          const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 1200);
-          const d = await fetch('http://' + ip + ':' + port + '/teleport/ping', { signal: ctrl.signal }).then(r => r.json());
-          clearTimeout(t);
-          if (d && d.service === 'restwalker') found.push({ ip, host: String(d.host ?? '').slice(0, 80) });
-        } catch {}
-      })());
-    }
-    await Promise.allSettled(tasks);
-  }
-  if (!found.length) { el.textContent = 'no restwalker peers found on :' + port; return; }
-  el.textContent = ''; // render found peers as one-click add buttons (textContent only = no XSS)
-  found.forEach(f => {
-    const b = document.createElement('button');
-    b.textContent = '+ ' + (f.host || f.ip) + ' (' + f.ip + ')';
-    b.title = 'add ' + f.ip + ':' + port;
-    b.style.cssText = 'display:block;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:3px 8px;font-size:11px;cursor:pointer;font-family:inherit;margin:2px 0';
-    b.onclick = () => quickAddPeer(f.ip, port);
-    el.appendChild(b);
-  });
-}
-function quickAddPeer(ip, port) {
-  const field = document.getElementById('s-TELEPORT_STATIC_PEERS');
-  const list = field.value.split(',').map(s => s.trim()).filter(Boolean);
-  const entry = ip + ':' + port;
-  if (!list.includes(entry)) list.push(entry);
-  field.value = list.join(', ');
-  const st = document.getElementById('tp-add-status');
-  st.textContent = 'added ' + entry + ' — click Save to persist'; st.style.color = 'var(--muted)';
-}
-// Test runs in the BROWSER (which has Local Network permission), pinging the
-// peer's /teleport/ping directly — the daemon can't reach the LAN.
-async function testTeleportPeer() {
-  const ip = document.getElementById('tp-add-ip').value.trim();
-  const port = (document.getElementById('tp-add-port').value.trim() || '47290');
-  const st = document.getElementById('tp-add-status');
-  const addBtn = document.getElementById('tp-add-btn');
-  addBtn.disabled = true; addBtn.style.opacity = '.5'; delete st.dataset.peer;
-  if (!ip) { st.textContent = 'enter an IP/host'; return; }
-  st.textContent = 'testing ' + ip + ':' + port + ' …'; st.style.color = 'var(--muted)';
-  try {
-    const ctrl = new AbortController(); const timer = setTimeout(() => ctrl.abort(), 4000);
-    const d = await fetch('http://' + ip + ':' + port + '/teleport/ping', { signal: ctrl.signal }).then(r => r.json());
-    clearTimeout(timer);
-    if (d && d.service === 'restwalker') {
-      // peer response is untrusted (arbitrary IP) — textContent only, never innerHTML
-      st.textContent = '✓ restwalker v' + String(d.version ?? '?').slice(0,40) + ' @ ' + String(d.host ?? '?').slice(0,253) + (d.teleport_network ? '' : ' — ⚠ peer’s "Advertise on LAN" is off');
-      st.style.color = 'var(--green)';
-      st.dataset.peer = ip + ':' + port;
-      addBtn.disabled = false; addBtn.style.opacity = '1';
-    } else { st.textContent = '✗ responded but not a restwalker service'; st.style.color = 'var(--red)'; }
-  } catch (e) {
-    st.textContent = '✗ no response (' + (e.name === 'AbortError' ? 'timeout' : e.message) + ')'; st.style.color = 'var(--red)';
-  }
-}
-function addTeleportPeer() {
-  const st = document.getElementById('tp-add-status');
-  const peer = st.dataset.peer; if (!peer) return;
-  const field = document.getElementById('s-TELEPORT_STATIC_PEERS');
-  const list = field.value.split(',').map(s => s.trim()).filter(Boolean);
-  if (!list.includes(peer)) list.push(peer);
-  field.value = list.join(', ');
-  document.getElementById('tp-add-ip').value = ''; st.textContent = 'added — click Save to persist'; st.style.color = 'var(--muted)';
-  document.getElementById('tp-add-btn').disabled = true; document.getElementById('tp-add-btn').style.opacity = '.5'; delete st.dataset.peer;
-}
 function genTeleportToken() {
   const b = new Uint8Array(24); crypto.getRandomValues(b);
   document.getElementById('s-TELEPORT_TOKEN').value = Array.from(b, x => x.toString(16).padStart(2,'0')).join('');
@@ -1200,16 +1084,6 @@ function genTeleportToken() {
 function copyTeleportToken() {
   const v = document.getElementById('s-TELEPORT_TOKEN').value;
   if (v) navigator.clipboard?.writeText(v);
-}
-async function loadTeleportPeers() {
-  const el = document.getElementById('teleport-peers');
-  el.textContent = '…';
-  try {
-    const d = await fetch('/teleport/peers').then(r => r.json());
-    el.textContent = (d.peers && d.peers.length)
-      ? d.peers.map(p => `${p.name} (${p.host}:${p.port})`).join(', ')
-      : 'none found on this LAN';
-  } catch { el.textContent = '—'; }
 }
 
 async function openSettings() {
