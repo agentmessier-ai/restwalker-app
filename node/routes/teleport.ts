@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { hostname } from 'os'
+import { hostname, networkInterfaces } from 'os'
 import { createHmac, timingSafeEqual } from 'crypto'
 import * as db from '../db.js'
 import { parseWindow, listProjectFolders, listConversations, getRawConversation } from '../teleport.js'
@@ -168,6 +168,24 @@ export default async function teleportRoutes(app: FastifyInstance) {
     }
     const hflags = Object.entries(headers).map(([k, v]) => `-H '${k}: ${v}'`).join(' ')
     return { url: url.toString(), headers, curl: `curl -s --max-time 10 ${hflags} '${url.toString()}'`.replace(/\s+/g, ' ') }
+  })
+
+  // Local network info for browser-side discovery — reading our own interfaces
+  // is a LOCAL operation (no LAN connection), so the daemon can do it. The
+  // browser then scans the /24 itself (it has Local-Network permission).
+  app.get('/teleport/local-net', {
+    schema: { tags: ['teleport'], summary: 'This machine\'s private /24 prefixes + self IPs (for browser-side scan)' },
+  }, async () => {
+    const prefixes = new Set<string>(); const self_ips: string[] = []
+    for (const addrs of Object.values(networkInterfaces())) {
+      for (const a of addrs ?? []) {
+        if (a.family !== 'IPv4' || a.internal) continue
+        if (!isPrivateIp(a.address)) continue
+        self_ips.push(a.address)
+        prefixes.add(a.address.split('.').slice(0, 3).join('.'))
+      }
+    }
+    return { prefixes: [...prefixes], self_ips, self_host: hostname() }
   })
 
   app.get('/teleport/folders', {

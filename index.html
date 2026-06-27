@@ -623,7 +623,7 @@
         </div>
         <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
             <div id="teleport-peers" style="font-size:11px;color:var(--muted);text-align:right">—</div>
-            <button onclick="loadTeleportPeers()" style="background:var(--blue);color:#fff;border:none;border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer;font-family:inherit">⟳ Auto-discover</button>
+            <button onclick="scanTeleportLan()" style="background:var(--blue);color:#fff;border:none;border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer;font-family:inherit">⟳ Auto-discover</button>
           </div>
         </div>
       </div>
@@ -1111,6 +1111,53 @@ function settingsTab(name) {
 }
 
 // ── Teleport settings helpers ─────────────────────────────────────────────────
+// Auto-discover runs in the BROWSER (the daemon can't reach the LAN). The daemon
+// just tells us which /24 to scan; we ping each host's /teleport/ping ourselves.
+async function scanTeleportLan() {
+  const port = (document.getElementById('tp-add-port').value.trim() || '47290');
+  const el = document.getElementById('teleport-peers');
+  el.textContent = 'scanning the LAN on :' + port + ' …'; el.style.color = 'var(--muted)';
+  let net;
+  try { net = await fetch('/teleport/local-net').then(r => r.json()); }
+  catch { el.textContent = 'scan failed (could not read local network)'; return; }
+  const prefixes = net.prefixes || []; const selfIps = new Set(net.self_ips || []);
+  if (!prefixes.length) { el.textContent = 'no private network found'; return; }
+  const found = [];
+  for (const pre of prefixes) {
+    const tasks = [];
+    for (let i = 1; i <= 254; i++) {
+      const ip = pre + '.' + i; if (selfIps.has(ip)) continue;
+      tasks.push((async () => {
+        try {
+          const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 1200);
+          const d = await fetch('http://' + ip + ':' + port + '/teleport/ping', { signal: ctrl.signal }).then(r => r.json());
+          clearTimeout(t);
+          if (d && d.service === 'restwalker') found.push({ ip, host: String(d.host ?? '').slice(0, 80) });
+        } catch {}
+      })());
+    }
+    await Promise.allSettled(tasks);
+  }
+  if (!found.length) { el.textContent = 'no restwalker peers found on :' + port; return; }
+  el.textContent = ''; // render found peers as one-click add buttons (textContent only = no XSS)
+  found.forEach(f => {
+    const b = document.createElement('button');
+    b.textContent = '+ ' + (f.host || f.ip) + ' (' + f.ip + ')';
+    b.title = 'add ' + f.ip + ':' + port;
+    b.style.cssText = 'display:block;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:3px 8px;font-size:11px;cursor:pointer;font-family:inherit;margin:2px 0';
+    b.onclick = () => quickAddPeer(f.ip, port);
+    el.appendChild(b);
+  });
+}
+function quickAddPeer(ip, port) {
+  const field = document.getElementById('s-TELEPORT_STATIC_PEERS');
+  const list = field.value.split(',').map(s => s.trim()).filter(Boolean);
+  const entry = ip + ':' + port;
+  if (!list.includes(entry)) list.push(entry);
+  field.value = list.join(', ');
+  const st = document.getElementById('tp-add-status');
+  st.textContent = 'added ' + entry + ' — click Save to persist'; st.style.color = 'var(--muted)';
+}
 // Test runs in the BROWSER (which has Local Network permission), pinging the
 // peer's /teleport/ping directly — the daemon can't reach the LAN.
 async function testTeleportPeer() {
