@@ -32,8 +32,14 @@ To cut a release:
 ## CI/CD
 
 - **CI** (`.github/workflows/ci.yml`) runs on `develop`, `feature/**`, and PRs into
-  `develop`/`master`: `npm ci`, `npm audit --audit-level=high`, `tsc --noEmit`, and a
-  boot smoke test. Runs on the self-hosted runner labelled `restwalker` (epyc2).
+  `develop`/`master`: `npm ci`, `npm audit --audit-level=high`, `tsc --noEmit`, `npm test`,
+  and a boot smoke test. Runs on the self-hosted runner labelled `restwalker` (epyc2).
+- **SonarQube** (the `sonarqube` job in `ci.yml`) runs on pushes to `develop` only —
+  SonarQube Community has no branch/PR analysis. It generates `c8` lcov coverage, then
+  scans + checks the quality gate against the self-hosted **SonarQube Community** server
+  (`sonarqube:community` on epyc2, `http://10.0.0.227:9000`). Needs repo secrets
+  `SONAR_TOKEN` + `SONAR_HOST_URL`; the scanner actions are pinned to commit SHAs and
+  kept current via Dependabot.
 - **Release** (`.github/workflows/release.yml`) runs on pushes to `master`. It publishes
   to npm **only if `package.json`'s version isn't already on the registry**, then tags
   and creates a GitHub Release. So non-version commits to `master` are safe no-ops.

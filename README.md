@@ -205,7 +205,7 @@ The default provider — **`claude -p`** — runs `claude --print --permission-m
 
 ## MCP server
 
-The MCP server (`node/mcp.ts`) exposes 23 tools for Claude Code via stdio transport:
+The MCP server (`node/mcp.ts`) exposes 27 tools for Claude Code via stdio transport:
 
 | Group | Tools |
 |---|---|
@@ -216,6 +216,7 @@ The MCP server (`node/mcp.ts`) exposes 23 tools for Claude Code via stdio transp
 | Providers | `list_providers`, `add_provider`, `set_default_provider` |
 | Discovery | `list_models`, `list_projects` |
 | Settings | `get_settings`, `update_settings` |
+| Teleport | `teleport`, `teleport_list`, `teleport_folders`, `teleport_handoff` |
 
 `queue_add` and `task_prompt_save` derive their input schemas from the live OpenAPI spec at
 startup — adding a field to the REST route surfaces it in the MCP tool automatically.
@@ -233,7 +234,7 @@ claude mcp add --scope user restwalker -- \
 ## Claude Code plugin
 
 A companion [Claude Code plugin](plugin/) turns natural language into RestWalker actions from
-any chat — no dashboard needed. It bundles four skills (and the MCP server):
+any chat — no dashboard needed. It bundles five skills (and the MCP server):
 
 | Skill | Say something like |
 |---|---|
@@ -241,6 +242,7 @@ any chat — no dashboard needed. It bundles four skills (and the MCP server):
 | `/restwalker:status` | "restwalker status", "what's in my queue", "how much budget left" |
 | `/restwalker:result` | "what did last night's task produce", "show the dream journal" |
 | `/restwalker:dream-journal` | "set up my nightly dream journal" |
+| `/restwalker:teleport` | "what was I doing in `<project>`", "pull the conversation from my other Mac" |
 
 ```
 /plugin marketplace add agentmessier-ai/restwalker-app
@@ -248,6 +250,29 @@ any chat — no dashboard needed. It bundles four skills (and the MCP server):
 ```
 
 See [`plugin/README.md`](plugin/README.md) for details.
+
+## Teleport
+
+Carry a recent Claude Code conversation from **another folder** — or **another Mac on your LAN** —
+into your current session. You moved machines (or repos) and want the context you built up
+elsewhere: just ask the agent.
+
+- **Same Mac, other folder** — *"what was I doing in `myproject`"* → pulls the recent turns from
+  that folder's Claude session.
+- **Another Mac** — *"pull the agentnet conversation from my other Mac"* → the agent scans your
+  LAN for the peer, confirms it, and pulls the conversation directly.
+
+Teleport is **read-only** and works through the MCP tools (`teleport`, `teleport_list`,
+`teleport_folders`) and the `/restwalker:teleport` skill — no dashboard needed to use it.
+
+**To be a _source_** (the Mac you pull *from*): Settings → Teleport → **Advertise on LAN**, and
+bind the daemon to `0.0.0.0` (`HOST` in the LaunchAgent). The Mac you pull *to* needs no setup.
+On a trusted LAN no token is required (access is guarded to private IPs); set a **pairing token**
+on both Macs for authenticated access.
+
+> macOS denies the background daemon access to the local network, so cross-Mac pulls run through
+> the agent's own shell (which holds Local-Network permission) rather than the daemon. See
+> [`docs/teleport-design.md`](docs/teleport-design.md) for the full architecture.
 
 ## API
 
