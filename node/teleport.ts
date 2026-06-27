@@ -7,6 +7,7 @@ import { readFileSync, readdirSync, statSync, existsSync } from 'fs'
 import { join, basename } from 'path'
 import { hostname } from 'os'
 import { CLAUDE_PROJECTS_DIR } from './db.js'
+import { parseTranscriptLine } from './transcript.js'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -127,37 +128,22 @@ function sessionFilesInWindow(encodedDir: string, sinceMs: number): { sessionId:
     .sort((a, b) => b.mtime - a.mtime)
 }
 
-function textOf(content: unknown): string {
-  if (typeof content === 'string') return content
-  if (Array.isArray(content)) {
-    return content
-      .filter((c): c is { type: string; text: string } => !!c && (c as { type?: string }).type === 'text' && typeof (c as { text?: string }).text === 'string')
-      .map(c => c.text).join('')
-  }
-  return ''
-}
-
 export function listConversations(query: string, windowMs: number): ConversationCandidate[] {
   const since = Date.now() - windowMs
   const out: ConversationCandidate[] = []
   for (const folder of resolveFolders(query)) {
     for (const s of sessionFilesInWindow(folder.encodedDir, since)) {
       try {
-        const lines = readFileSync(s.file, 'utf8').split('\n').filter(Boolean)
+        const lines = readFileSync(s.file, 'utf8').split('\n')
         let firstReq = '', startTs: string | null = null, endTs: string | null = null, branch: string | null = null, count = 0
         for (const line of lines) {
-          let d: Record<string, unknown>; try { d = JSON.parse(line) } catch { continue }
-          const t = d.type as string
-          if (t !== 'user' && t !== 'assistant') continue
-          const ts = d.timestamp as string | undefined
-          if (ts && new Date(ts).getTime() < since) continue   // window-filter by message ts
+          const e = parseTranscriptLine(line)
+          if (!e) continue
+          if (e.ts && new Date(e.ts).getTime() < since) continue   // window-filter by message ts
           count++
-          if (ts) { startTs = startTs ?? ts; endTs = ts }
-          if (typeof d.gitBranch === 'string') branch = d.gitBranch as string
-          if (t === 'user' && !firstReq) {
-            const txt = textOf((d as { message?: { content?: unknown } }).message?.content)
-            if (txt.trim()) firstReq = txt.trim().slice(0, 200)
-          }
+          if (e.ts) { startTs = startTs ?? e.ts; endTs = e.ts }
+          if (e.gitBranch) branch = e.gitBranch
+          if (e.type === 'user' && !firstReq && e.text.trim()) firstReq = e.text.trim().slice(0, 200)
         }
         if (count > 0) out.push({
           host: hostname(), session_id: s.sessionId, project_path: folder.path,
@@ -200,39 +186,28 @@ export function getRawConversation(opts: {
              candidates: listConversations(query, windowMs) }
   }
 
-  const lines = readFileSync(target.file, 'utf8').split('\n').filter(Boolean)
+  const lines = readFileSync(target.file, 'utf8').split('\n')
   const trunc = (s: string) => (full || s.length <= PER_RESULT_CAP) ? s : s.slice(0, PER_RESULT_CAP) + `…[+${s.length - PER_RESULT_CAP} chars]`
 
   const turns: RawTurn[] = []
   let branch: string | null = null, firstTs: string | null = null, lastTs: string | null = null
   for (const line of lines) {
-    let d: Record<string, unknown>; try { d = JSON.parse(line) } catch { continue }
-    const t = d.type as string
-    if (t !== 'user' && t !== 'assistant') continue
-    const ts = (d.timestamp as string | undefined) ?? null
-    if (ts && new Date(ts).getTime() < since) continue
-    if (typeof d.gitBranch === 'string') branch = d.gitBranch as string
-    if (ts) { firstTs = firstTs ?? ts; lastTs = ts }
-    const content = (d as { message?: { content?: unknown } }).message?.content
+    const e = parseTranscriptLine(line)
+    if (!e) continue
+    if (e.ts && new Date(e.ts).getTime() < since) continue
+    if (e.gitBranch) branch = e.gitBranch
+    if (e.ts) { firstTs = firstTs ?? e.ts; lastTs = e.ts }
 
-    if (t === 'assistant') {
-      const turn: RawTurn = { role: 'assistant', ts, text: textOf(content) }
-      if (Array.isArray(content)) {
-        const uses = content.filter((c: { type?: string }) => c?.type === 'tool_use')
-          .map((c: { name?: string; input?: unknown }) => ({ name: c.name ?? '?', input: full ? c.input : undefined }))
-        if (uses.length) turn.tool_uses = uses
-      }
+    if (e.type === 'assistant') {
+      const turn: RawTurn = { role: 'assistant', ts: e.ts, text: e.text }
+      if (e.toolUses.length) turn.tool_uses = e.toolUses.map(u => ({ name: u.name, input: full ? u.input : undefined }))
       if (turn.text || turn.tool_uses) turns.push(turn)
     } else {
-      const turn: RawTurn = { role: 'user', ts, text: textOf(content) }
-      if (Array.isArray(content)) {
-        const res = content.filter((c: { type?: string }) => c?.type === 'tool_result')
-          .map((c: { is_error?: boolean; content?: unknown }) => ({
-            is_error: Boolean(c.is_error),
-            content: trunc(typeof c.content === 'string' ? c.content : JSON.stringify(c.content)),
-          }))
-        if (res.length) turn.tool_results = res
-      }
+      const turn: RawTurn = { role: 'user', ts: e.ts, text: e.text }
+      if (e.toolResults.length) turn.tool_results = e.toolResults.map(r => ({
+        is_error: r.is_error,
+        content: trunc(typeof r.content === 'string' ? r.content : JSON.stringify(r.content)),
+      }))
       if (turn.text || turn.tool_results) turns.push(turn)
     }
   }

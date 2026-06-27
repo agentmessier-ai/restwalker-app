@@ -1,5 +1,5 @@
 import { eq, sql } from 'drizzle-orm'
-import { db, client, schema, DATA_DIR, WORKSPACE_DIR } from './client.js'
+import { db, client, schema } from './client.js'
 import { SETTING_DEFAULTS } from './settings.js'
 import { BUILTIN_SYSTEM_PROMPT } from './system-prompt.js'
 

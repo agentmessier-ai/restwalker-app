@@ -3,10 +3,13 @@ import { hostname, networkInterfaces } from 'os'
 import { createHmac, timingSafeEqual } from 'crypto'
 import * as db from '../db.js'
 import { parseWindow, listProjectFolders, listConversations, getRawConversation } from '../teleport.js'
-import { getPeers, type Peer } from '../teleport-mdns.js'
 import { S } from './schemas.js'
 
-// Operator-configured peers (mDNS can't cross subnets/VPN). An explicit allowlist.
+// A peer the daemon may sign/proxy a request to (secure "token" mode only — the
+// default LAN flow has the agent scan/pull over Bash, no peer registry needed).
+interface Peer { name: string; host: string; port: number; addresses: string[]; version?: string }
+
+// Operator-configured peers (an explicit allowlist for cross-subnet/VPN/secure mode).
 function staticPeers(): Peer[] {
   return (db.getSettings().TELEPORT_STATIC_PEERS ?? '')
     .split(',').map(s => s.trim()).filter(Boolean)
@@ -17,7 +20,7 @@ function staticPeers(): Peer[] {
 }
 function knownPeers(): Peer[] {
   const seen = new Set<string>(); const all: Peer[] = []
-  for (const p of [...getPeers(), ...staticPeers()]) {
+  for (const p of staticPeers()) {
     const key = `${p.host}:${p.port}`
     if (!seen.has(key)) { seen.add(key); all.push(p) }
   }
@@ -249,15 +252,4 @@ export default async function teleportRoutes(app: FastifyInstance) {
     const win = parseWindow(window ?? db.getSettings().TELEPORT_DEFAULT_WINDOW)
     return getRawConversation({ query: folder, windowMs: win, sessionId: session, full: full === '1' })
   })
-
-  app.get('/teleport/peers', {
-    schema: {
-      tags: ['teleport'],
-      summary: 'Discovered restwalker peers on the LAN (mDNS)',
-      response: { 200: { type: 'object', properties: {
-        enabled: { type: 'boolean' },
-        peers: { type: 'array', items: { type: 'object', properties: {
-          name: { type: 'string' }, host: { type: 'string' }, port: { type: 'integer' }, version: { type: 'string' } } } } } } },
-    },
-  }, async () => ({ enabled: db.getSettings().TELEPORT_NETWORK_ENABLED === '1', peers: knownPeers() }))
 }

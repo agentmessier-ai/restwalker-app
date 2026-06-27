@@ -2,10 +2,37 @@ import { readFileSync, existsSync, readdirSync, statSync } from 'fs'
 import { join, basename } from 'path'
 import { homedir } from 'os'
 import { CLAUDE_PROJECTS_DIR } from './db.js'
+import { parseTranscriptLine } from './transcript.js'
 
 export interface ArtifactDeclaration {
   path:        string
   description: string
+}
+
+const ARTIFACT_RE = /^ARTIFACT:\s*(\{.+\})\s*$/m
+const TAGS_RE     = /^TAGS:\s*(\[.+\])\s*$/m
+
+// Append any ARTIFACT: {json} declarations found in one assistant text block.
+function collectArtifacts(text: string, out: ArtifactDeclaration[]): void {
+  const re = new RegExp(ARTIFACT_RE.source, 'gm')
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text)) !== null) {
+    try {
+      const decl = JSON.parse(m[1]) as { path?: string; description?: string }
+      if (decl.path) out.push({ path: decl.path, description: decl.description ?? '' })
+    } catch { /* malformed declaration */ }
+  }
+}
+
+// The last valid TAGS: [...] declaration in a text block, normalized; null if none.
+function extractTags(text: string): string[] | null {
+  const matches = text.match(new RegExp(TAGS_RE.source, 'gm'))
+  if (!matches) return null
+  try {
+    const arr = JSON.parse(matches[matches.length - 1].replace(/^TAGS:\s*/, ''))
+    if (Array.isArray(arr)) return arr.map(String).map(s => s.trim().toLowerCase()).filter(Boolean).slice(0, 3)
+  } catch { /* malformed */ }
+  return null
 }
 
 export interface SessionAnalysis {
@@ -50,80 +77,38 @@ export function analyzeSession(sessionPath: string): SessionAnalysis {
   const sessionId = basename(sessionPath, '.jsonl')
   let lastAssistantText = ''
 
-  const ARTIFACT_RE = /^ARTIFACT:\s*(\{.+\})\s*$/m
-  const TAGS_RE     = /^TAGS:\s*(\[.+\])\s*$/m
-
   for (const line of lines) {
-    let d: Record<string, unknown>
-    try { d = JSON.parse(line) } catch { continue }
+    const e = parseTranscriptLine(line)
+    if (!e) continue
 
-    const type = d.type as string
+    if (e.type === 'user' && !userRequest) userRequest = e.textBlocks.join(' ').slice(0, 300)
+    if (e.type !== 'assistant') continue
 
-    if (type === 'user' && !userRequest) {
-      const content = (d as { message?: { content?: unknown } }).message?.content
-      if (typeof content === 'string') {
-        userRequest = content.slice(0, 300)
-      } else if (Array.isArray(content)) {
-        userRequest = content
-          .filter((c): c is { type: string; text: string } =>
-            typeof c === 'object' && c !== null && (c as { type?: string }).type === 'text')
-          .map(c => c.text)
-          .join(' ')
-          .slice(0, 300)
-      }
+    tokensUsed += e.usage.output_tokens + e.usage.input_tokens
+    for (const text of e.textBlocks) {
+      lastAssistantText = text
+      collectArtifacts(text, artifacts)
+      const t = extractTags(text)
+      if (t) tags = t                              // a later turn overrides an earlier one
     }
-
-    if (type === 'assistant') {
-      const msg = (d as { message?: { content?: unknown; usage?: { output_tokens?: number; input_tokens?: number } } }).message ?? {}
-      const usage = (msg as { usage?: { output_tokens?: number; input_tokens?: number } }).usage ?? {}
-      tokensUsed += (usage.output_tokens ?? 0) + (usage.input_tokens ?? 0)
-
-      const content = (msg as { content?: unknown }).content
-      if (Array.isArray(content)) {
-        for (const c of content as Array<Record<string, unknown>>) {
-          if (c.type === 'text' && typeof c.text === 'string') {
-            lastAssistantText = c.text as string
-            // Extract ARTIFACT: {...} declarations
-            let m: RegExpExecArray | null
-            const re = new RegExp(ARTIFACT_RE.source, 'gm')
-            while ((m = re.exec(c.text as string)) !== null) {
-              try {
-                const decl = JSON.parse(m[1]) as { path?: string; description?: string }
-                if (decl.path) artifacts.push({ path: decl.path, description: decl.description ?? '' })
-              } catch {}
-            }
-            // Extract the last TAGS: [...] declaration (a later turn overrides an earlier one)
-            const tagsMatch = (c.text as string).match(new RegExp(TAGS_RE.source, 'gm'))
-            if (tagsMatch) {
-              try {
-                const arr = JSON.parse(tagsMatch[tagsMatch.length - 1].replace(/^TAGS:\s*/, ''))
-                if (Array.isArray(arr)) tags = arr.map(String).map(s => s.trim().toLowerCase()).filter(Boolean).slice(0, 3)
-              } catch {}
-            }
-          }
-          if (c.type === 'tool_use') {
-            toolCalls++
-            const name = c.name as string
-            const input = c.input as Record<string, unknown>
-
-            if (name === 'Write') {
-              const fp = (input.file_path as string | undefined) ?? ''
-              filesWritten.push(fp.replace(homedir(), '~'))
-              keySteps.push(`Write ${basename(fp)}`)
-            } else if (name === 'Edit') {
-              const fp = (input.file_path as string | undefined) ?? ''
-              if (!filesEdited.includes(fp)) {
-                filesEdited.push(fp.replace(homedir(), '~'))
-                keySteps.push(`Edit ${basename(fp)}`)
-              }
-            } else if (name === 'Bash') {
-              const cmd = ((input.command as string | undefined) ?? '').slice(0, 80)
-              if (cmd) keySteps.push(`Bash: ${cmd}`)
-            } else if (['WebSearch', 'WebFetch'].includes(name)) {
-              keySteps.push(name)
-            }
-          }
+    for (const u of e.toolUses) {
+      toolCalls++
+      const input = u.input as Record<string, unknown>
+      if (u.name === 'Write') {
+        const fp = (input.file_path as string | undefined) ?? ''
+        filesWritten.push(fp.replace(homedir(), '~'))
+        keySteps.push(`Write ${basename(fp)}`)
+      } else if (u.name === 'Edit') {
+        const fp = (input.file_path as string | undefined) ?? ''
+        if (!filesEdited.includes(fp)) {
+          filesEdited.push(fp.replace(homedir(), '~'))
+          keySteps.push(`Edit ${basename(fp)}`)
         }
+      } else if (u.name === 'Bash') {
+        const cmd = ((input.command as string | undefined) ?? '').slice(0, 80)
+        if (cmd) keySteps.push(`Bash: ${cmd}`)
+      } else if (['WebSearch', 'WebFetch'].includes(u.name)) {
+        keySteps.push(u.name)
       }
     }
   }
