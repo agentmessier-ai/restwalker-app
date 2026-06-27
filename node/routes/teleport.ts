@@ -89,6 +89,7 @@ export default async function teleportRoutes(app: FastifyInstance) {
   // reach the port (trusted networks only).
   app.addHook('preHandler', async (req, reply) => {
     if (!req.url.startsWith('/teleport')) return
+    if (req.url.startsWith('/teleport/ping')) return   // unauthenticated identity handshake
     if (isLocalReq(req)) return
     const cfg = db.getSettings()
     if (cfg.TELEPORT_NETWORK_ENABLED !== '1') return reply.code(403).send({ error: 'teleport network access disabled on this host' })
@@ -103,6 +104,70 @@ export default async function teleportRoutes(app: FastifyInstance) {
     if (!ts || !sig) return reply.code(401).send({ error: 'missing teleport signature' })
     if (!/^\d+$/.test(ts) || Math.abs(Date.now() - Number(ts)) > SIG_SKEW_MS) return reply.code(401).send({ error: 'stale or invalid timestamp' })
     if (!safeEqualHex(sign(cfg.TELEPORT_TOKEN, req.method, req.url, ts), sig)) return reply.code(401).send({ error: 'invalid teleport signature' })
+  })
+
+  // ── Identity handshake (ping/pong) ──────────────────────────────────────────
+  // Lets the dashboard browser confirm an IP:port is really a restwalker peer.
+  // CORS + Private-Network-Access headers so a localhost page may reach a LAN IP.
+  function pingCors(reply: import('fastify').FastifyReply) {
+    reply.header('Access-Control-Allow-Origin', '*')
+    reply.header('Access-Control-Allow-Private-Network', 'true')
+    reply.header('Access-Control-Allow-Methods', 'GET, OPTIONS')
+    reply.header('Access-Control-Allow-Headers', '*')
+  }
+  app.options('/teleport/ping', async (_req, reply) => { pingCors(reply); return reply.code(204).send() })
+  app.get('/teleport/ping', {
+    schema: { tags: ['teleport'], summary: 'Identity handshake — returns the service id/version (the "pong")' },
+  }, async (_req, reply) => {
+    pingCors(reply)
+    return {
+      service: 'restwalker',
+      version: process.env.npm_package_version ?? 'dev',
+      host: hostname(),
+      teleport_network: db.getSettings().TELEPORT_NETWORK_ENABLED === '1',
+    }
+  })
+
+  // ── Connection handoff ──────────────────────────────────────────────────────
+  // Resolve a saved peer + sign the request HERE (token stays on the daemon),
+  // and hand back a ready-to-run request. The skill executes the `curl` from its
+  // own Bash — the process that actually holds macOS Local-Network permission —
+  // so the launchd daemon never makes the LAN connection.
+  app.get('/teleport/handoff', {
+    schema: {
+      tags: ['teleport'],
+      summary: 'Get a ready-to-run (signed) request to pull from a peer directly',
+      querystring: {
+        type: 'object', required: ['host', 'folder'],
+        properties: {
+          host:    { type: 'string', description: 'Saved peer host/ip (must be known)' },
+          kind:    { type: 'string', enum: ['conversation', 'list', 'folders'], description: 'default conversation' },
+          folder:  { type: 'string' },
+          window:  { type: 'string' },
+          session: { type: 'string' },
+          full:    { type: 'string', enum: ['0', '1'] },
+        },
+      },
+      response: { 200: { type: 'object', additionalProperties: true }, 400: S.error },
+    },
+  }, async (req) => {
+    const q = req.query as { host: string; kind?: string; folder: string; window?: string; session?: string; full?: string }
+    const peer = resolvePeer(q.host)   // throws 400 if not a known peer
+    if (!peer) throw Object.assign(new Error('handoff requires a remote host (this is the local machine)'), { statusCode: 400 })
+    const path = q.kind === 'list' ? '/teleport/list' : q.kind === 'folders' ? '/teleport/folders' : '/teleport/conversation'
+    const url = new URL(peer.base + path)
+    for (const k of ['folder', 'window', 'session', 'full'] as const) {
+      const v = q[k]; if (v != null && v !== '') url.searchParams.set(k, String(v))
+    }
+    const tok = db.getSettings().TELEPORT_TOKEN
+    const headers: Record<string, string> = {}
+    if (tok) {
+      const ts = String(Date.now())
+      headers['x-teleport-ts']  = ts
+      headers['x-teleport-sig'] = sign(tok, 'GET', url.pathname + url.search, ts)
+    }
+    const hflags = Object.entries(headers).map(([k, v]) => `-H '${k}: ${v}'`).join(' ')
+    return { url: url.toString(), headers, curl: `curl -s --max-time 10 ${hflags} '${url.toString()}'`.replace(/\s+/g, ' ') }
   })
 
   app.get('/teleport/folders', {
