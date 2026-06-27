@@ -29,6 +29,20 @@ function isLocalReq(req: FastifyRequest): boolean {
   return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1'
 }
 
+// Private/LAN ranges. The token-less path is allowed ONLY from these, so an
+// accidentally public-bound daemon never serves conversations to the internet.
+function isPrivateIp(ip: string): boolean {
+  const v4 = ip.replace(/^::ffff:/, '')
+  if (/^127\./.test(v4) || ip === '::1') return true
+  if (/^10\./.test(v4)) return true
+  if (/^192\.168\./.test(v4)) return true
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(v4)) return true
+  if (/^169\.254\./.test(v4)) return true            // IPv4 link-local
+  if (/^fe80:/i.test(ip)) return true                // IPv6 link-local
+  if (/^f[cd][0-9a-f]{2}:/i.test(ip)) return true     // IPv6 ULA (fc00::/7)
+  return false
+}
+
 // Sign requests instead of transmitting the shared token: x-teleport-sig =
 // HMAC(token, method + url + ts). The secret never crosses the wire, and the
 // timestamp bounds replay. Peers verify with their own copy of the token.
@@ -78,7 +92,12 @@ export default async function teleportRoutes(app: FastifyInstance) {
     if (isLocalReq(req)) return
     const cfg = db.getSettings()
     if (cfg.TELEPORT_NETWORK_ENABLED !== '1') return reply.code(403).send({ error: 'teleport network access disabled on this host' })
-    if (!cfg.TELEPORT_TOKEN) return   // token auth disabled — open on the LAN (trusted-network only)
+    if (!cfg.TELEPORT_TOKEN) {
+      // Token auth disabled — serve unauthenticated ONLY to private/LAN clients,
+      // never to a public peer (guards against an accidentally public-bound daemon).
+      if (isPrivateIp(req.ip)) return
+      return reply.code(401).send({ error: 'unauthenticated teleport is only allowed from a private/LAN address — set a TELEPORT_TOKEN for off-LAN access' })
+    }
     const ts  = req.headers['x-teleport-ts']  as string | undefined
     const sig = req.headers['x-teleport-sig'] as string | undefined
     if (!ts || !sig) return reply.code(401).send({ error: 'missing teleport signature' })

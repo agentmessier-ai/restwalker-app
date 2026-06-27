@@ -157,3 +157,6 @@ setMdnsLogger({ info: (s) => app.log.info(s), warn: (s) => app.log.warn(s) })
 // accept inbound pulls when network teleport is explicitly enabled.
 const teleportAdvertise = db.getSettings().TELEPORT_NETWORK_ENABLED === '1'
 startMdns(PORT, process.env.npm_package_version ?? 'dev', teleportAdvertise)
+if (teleportAdvertise && !db.getSettings().TELEPORT_TOKEN) {
+  app.log.warn('[teleport] advertising on the LAN with NO pairing token — any device on your local network can read conversations. Set a TELEPORT_TOKEN unless the network is fully trusted.')
+}
