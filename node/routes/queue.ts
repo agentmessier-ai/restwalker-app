@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { existsSync, readFileSync } from 'fs'
 import * as db from '../db.js'
 import { enqueueTask, forceRunTask } from '../runner.js'
+import { parseTranscriptLine } from '../transcript.js'
 import { S } from './schemas.js'
 
 export default async function queueRoutes(app: FastifyInstance) {
@@ -222,19 +223,18 @@ export default async function queueRoutes(app: FastifyInstance) {
     if (!existsSync(task.session_path)) return reply.code(404).send({ error: 'session file missing' })
 
     try {
-      const lines = readFileSync(task.session_path, 'utf8').split('\n').filter(Boolean)
+      const entries = readFileSync(task.session_path, 'utf8').split('\n')
+        .map(parseTranscriptLine).filter((e): e is NonNullable<typeof e> => e !== null)
 
+      // tool_use_id -> result (results live in later user messages)
       const toolResults = new Map<string, string>()
-      for (const line of lines) {
-        const e = JSON.parse(line)
-        if (e.type === 'user' && Array.isArray(e.message?.content)) {
-          for (const b of e.message.content) {
-            if (b.type !== 'tool_result') continue
-            const raw = Array.isArray(b.content)
-              ? b.content.map((c: {text?: string}) => c.text ?? '').join('')
-              : String(b.content ?? '')
-            toolResults.set(b.tool_use_id, raw.slice(0, 3000))
-          }
+      for (const e of entries) {
+        for (const r of e.toolResults) {
+          if (r.id == null) continue
+          const raw = Array.isArray(r.content)
+            ? (r.content as { text?: string }[]).map(c => c.text ?? '').join('')
+            : String(r.content ?? '')
+          toolResults.set(r.id, raw.slice(0, 3000))
         }
       }
 
@@ -245,35 +245,19 @@ export default async function queueRoutes(app: FastifyInstance) {
         tool_calls: { name: string; input: Record<string, unknown>; result: string | null }[]
       }
       const turns: Turn[] = []
-      let firstUser = true
 
-      for (const line of lines) {
-        const e = JSON.parse(line)
-
+      for (const e of entries) {
         if (e.type === 'user') {
-          const content = e.message?.content
-          let text: string | null = null
-          if (typeof content === 'string') text = content.trim() || null
-          else if (Array.isArray(content)) {
-            const parts = content.filter((b: {type:string}) => b.type === 'text').map((b: {text:string}) => b.text)
-            text = parts.join('\n').trim() || null
-          }
-          if (firstUser) { firstUser = false; if (text) turns.push({ role: 'user', text, thinking: null, tool_calls: [] }) }
-          else if (text)  turns.push({ role: 'user', text, thinking: null, tool_calls: [] })
-
-        } else if (e.type === 'assistant') {
-          const content = e.message?.content
-          if (!Array.isArray(content)) continue
-          const thinking = content.filter((b: {type:string}) => b.type === 'thinking')
-            .map((b: {thinking:string}) => b.thinking).join('\n').slice(0, 8000) || null
-          const text = content.filter((b: {type:string}) => b.type === 'text')
-            .map((b: {text:string}) => b.text).join('\n').trim().slice(0, 4000) || null
-          const tool_calls = content.filter((b: {type:string}) => b.type === 'tool_use')
-            .map((b: {id:string;name:string;input:Record<string,unknown>}) => ({
-              name:   b.name,
-              input:  b.input,
-              result: toolResults.get(b.id) ?? null,
-            }))
+          const text = e.textBlocks.join('\n').trim() || null
+          if (text) turns.push({ role: 'user', text, thinking: null, tool_calls: [] })
+        } else {
+          const thinking = e.thinkingBlocks.join('\n').slice(0, 8000) || null
+          const text = e.textBlocks.join('\n').trim().slice(0, 4000) || null
+          const tool_calls = e.toolUses.map(u => ({
+            name:   u.name,
+            input:  u.input as Record<string, unknown>,
+            result: toolResults.get(u.id ?? '') ?? null,
+          }))
           if (thinking || text || tool_calls.length)
             turns.push({ role: 'assistant', text, thinking, tool_calls })
         }
