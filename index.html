@@ -127,6 +127,14 @@
   .modal-close:hover { color: var(--text); background: var(--border); }
 
   /* ── Settings form ── */
+  .settings-tabs { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
+  .settings-tab {
+    background: none; border: none; border-bottom: 2px solid transparent; color: var(--muted);
+    padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit;
+    margin-bottom: -1px;
+  }
+  .settings-tab:hover { color: var(--text); }
+  .settings-tab.active { color: var(--text); border-bottom-color: var(--blue); }
   .settings-group { margin-bottom: 20px; }
   .settings-group-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); font-weight: 600; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
   .setting-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 12px; }
@@ -415,6 +423,13 @@
       <button class="modal-close" onclick="closeSettings()">✕</button>
     </div>
 
+    <div class="settings-tabs">
+      <button type="button" class="settings-tab active" id="stab-main"     onclick="settingsTab('main')">Main</button>
+      <button type="button" class="settings-tab"        id="stab-model"    onclick="settingsTab('model')">Model</button>
+      <button type="button" class="settings-tab"        id="stab-teleport" onclick="settingsTab('teleport')">Teleport</button>
+    </div>
+
+    <div class="tab-pane" id="tab-main">
     <div class="settings-group">
       <div class="settings-group-title" id="sched-group-title">Schedule</div>
       <div class="setting-row">
@@ -527,7 +542,9 @@
         </div>
       </div>
     </div>
+    </div><!-- /tab-main -->
 
+    <div class="tab-pane" id="tab-model" style="display:none">
     <div class="settings-group">
       <div class="settings-group-title" style="display:flex;justify-content:space-between;align-items:center">
         Agent Providers
@@ -554,7 +571,9 @@
         </div>
       </div>
     </div>
+    </div><!-- /tab-model -->
 
+    <div class="tab-pane" id="tab-teleport" style="display:none">
     <div class="settings-group">
       <div class="settings-group-title">Teleport — cross-folder & cross-Mac conversations</div>
       <div class="setting-row">
@@ -602,6 +621,7 @@
         </div>
       </div>
     </div>
+    </div><!-- /tab-teleport -->
 
     <div class="modal-footer">
       <span class="save-status" id="save-status">✓ Saved</span>
@@ -1067,6 +1087,15 @@ function toggleCodingWindow(enabled) {
   document.getElementById('coding-window-times').style.display = enabled ? 'block' : 'none';
 }
 
+// ── Settings tabs (Main / Model / Teleport) ──────────────────────────────────
+function settingsTab(name) {
+  for (const t of ['main', 'model', 'teleport']) {
+    document.getElementById('tab-' + t).style.display = t === name ? 'block' : 'none';
+    document.getElementById('stab-' + t).classList.toggle('active', t === name);
+  }
+  if (name === 'teleport' && document.getElementById('s-TELEPORT_NETWORK_ENABLED').checked) loadTeleportPeers();
+}
+
 // ── Teleport settings helpers ─────────────────────────────────────────────────
 function toggleTeleportNet(enabled) {
   document.getElementById('teleport-net-fields').style.display = enabled ? 'block' : 'none';
@@ -1114,6 +1143,7 @@ async function openSettings() {
     updateSliderTrack(el);
   }
   document.getElementById('save-status').style.display = 'none';
+  settingsTab('main');
   document.getElementById('modal-overlay').classList.add('open');
 }
 
