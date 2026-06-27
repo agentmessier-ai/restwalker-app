@@ -1,4 +1,4 @@
-import { desc, sql } from 'drizzle-orm'
+import { desc } from 'drizzle-orm'
 import { db, client, schema } from './client.js'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
