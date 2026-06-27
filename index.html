@@ -1113,41 +1113,54 @@ function settingsTab(name) {
 // ── Teleport settings helpers ─────────────────────────────────────────────────
 // Auto-discover runs in the BROWSER (the daemon can't reach the LAN). The daemon
 // just tells us which /24 to scan; we ping each host's /teleport/ping ourselves.
+let _scanAbort = null;
 async function scanTeleportLan() {
   const port = (document.getElementById('tp-add-port').value.trim() || '47290');
   const el = document.getElementById('teleport-peers');
-  el.textContent = 'scanning the LAN on :' + port + ' …'; el.style.color = 'var(--muted)';
+  if (_scanAbort) { _scanAbort.abort(); _scanAbort = null; }   // a running scan? cancel it (button toggles)
+  const run = new AbortController(); _scanAbort = run;
+  el.style.color = 'var(--muted)'; el.textContent = 'reading local network…';
+
   let net;
   try { net = await fetch('/teleport/local-net').then(r => r.json()); }
-  catch { el.textContent = 'scan failed (could not read local network)'; return; }
+  catch { el.textContent = 'scan failed (could not read local network)'; _scanAbort = null; return; }
   const prefixes = net.prefixes || []; const selfIps = new Set(net.self_ips || []);
-  if (!prefixes.length) { el.textContent = 'no private network found'; return; }
-  const found = [];
-  for (const pre of prefixes) {
-    const tasks = [];
-    for (let i = 1; i <= 254; i++) {
-      const ip = pre + '.' + i; if (selfIps.has(ip)) continue;
-      tasks.push((async () => {
-        try {
-          const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 1200);
-          const d = await fetch('http://' + ip + ':' + port + '/teleport/ping', { signal: ctrl.signal }).then(r => r.json());
-          clearTimeout(t);
-          if (d && d.service === 'restwalker') found.push({ ip, host: String(d.host ?? '').slice(0, 80) });
-        } catch {}
-      })());
-    }
-    await Promise.allSettled(tasks);
-  }
-  if (!found.length) { el.textContent = 'no restwalker peers found on :' + port; return; }
-  el.textContent = ''; // render found peers as one-click add buttons (textContent only = no XSS)
-  found.forEach(f => {
+  if (!prefixes.length) { el.textContent = 'no private network found'; _scanAbort = null; return; }
+
+  const targets = [];
+  for (const pre of prefixes) for (let i = 1; i <= 254; i++) { const ip = pre + '.' + i; if (!selfIps.has(ip)) targets.push(ip); }
+
+  const PER_HOST_MS = 700, POOL = 48, OVERALL_MS = 15000;
+  const found = []; let done = 0; let idx = 0; const total = targets.length;
+  const overall = setTimeout(() => run.abort(), OVERALL_MS);
+
+  el.textContent = '';
+  const prog = document.createElement('div'); prog.style.cssText = 'font-size:11px;color:var(--muted)'; el.appendChild(prog);
+  const tick = () => { prog.textContent = run.signal.aborted ? `stopped · ${done}/${total} · found ${found.length}` : `scanning ${done}/${total} on :${port} · found ${found.length}`; };
+  tick();
+  const addBtn = (f) => {
     const b = document.createElement('button');
-    b.textContent = '+ ' + (f.host || f.ip) + ' (' + f.ip + ')';
-    b.title = 'add ' + f.ip + ':' + port;
+    b.textContent = '+ ' + (f.host || f.ip) + ' (' + f.ip + ')'; b.title = 'add ' + f.ip + ':' + port;
     b.style.cssText = 'display:block;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:3px 8px;font-size:11px;cursor:pointer;font-family:inherit;margin:2px 0';
-    b.onclick = () => quickAddPeer(f.ip, port);
-    el.appendChild(b);
-  });
+    b.onclick = () => quickAddPeer(f.ip, port); el.appendChild(b);
+  };
+  async function worker() {
+    while (idx < targets.length && !run.signal.aborted) {
+      const ip = targets[idx++];
+      try {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), PER_HOST_MS);
+        const onAbort = () => ctrl.abort(); run.signal.addEventListener('abort', onAbort);
+        const d = await fetch('http://' + ip + ':' + port + '/teleport/ping', { signal: ctrl.signal }).then(r => r.json());
+        clearTimeout(t); run.signal.removeEventListener('abort', onAbort);
+        if (d && d.service === 'restwalker') { const f = { ip, host: String(d.host ?? '').slice(0, 80) }; found.push(f); addBtn(f); }
+      } catch {}
+      done++; tick();
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(POOL, total) }, worker));
+  clearTimeout(overall); _scanAbort = null;
+  prog.textContent = found.length ? `found ${found.length} — click to add:` : `no restwalker peers found on :${port}`;
 }
 function quickAddPeer(ip, port) {
   const field = document.getElementById('s-TELEPORT_STATIC_PEERS');
