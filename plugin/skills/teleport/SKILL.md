@@ -1,7 +1,7 @@
 ---
 name: teleport
 description: Carry a recent Claude Code conversation from another folder — or another Mac on the LAN — into this session. Use when the user says "what was I doing in <folder/project>", "carry over / bring over the conversation from <folder>", "continue what I started in <other repo>", "pull my session from <project>", "teleport the conversation from my other Mac", or otherwise wants context from a Claude session that happened somewhere else. Reads it via the RestWalker teleport MCP tools.
-allowed-tools: mcp__plugin_restwalker_restwalker__teleport mcp__plugin_restwalker_restwalker__teleport_list mcp__plugin_restwalker_restwalker__teleport_folders mcp__plugin_restwalker_restwalker__teleport_peers mcp__restwalker__teleport mcp__restwalker__teleport_list mcp__restwalker__teleport_folders mcp__restwalker__teleport_peers
+allowed-tools: mcp__plugin_restwalker_restwalker__teleport mcp__plugin_restwalker_restwalker__teleport_list mcp__plugin_restwalker_restwalker__teleport_folders mcp__plugin_restwalker_restwalker__teleport_peers mcp__plugin_restwalker_restwalker__teleport_handoff mcp__restwalker__teleport mcp__restwalker__teleport_list mcp__restwalker__teleport_folders mcp__restwalker__teleport_peers mcp__restwalker__teleport_handoff Bash
 ---
 
 # Teleport a conversation into this session
@@ -26,10 +26,18 @@ read it and continue.
    narrow it (`window=1h`) for "the thing I was just on". Pass `full=true` only if you need
    untruncated tool outputs.
 
-4. **Another Mac?** Call `teleport_peers` to list restwalker Macs on the LAN, then
-   `teleport folder=<name> host=<peer>`. (Cross-Mac needs network teleport enabled + a shared
-   token on both Macs — if no peers show up, tell the user to enable it in RestWalker Settings →
-   Teleport on the other Mac.)
+4. **Another Mac? — use the handoff, not a direct tool call.** macOS blocks the RestWalker
+   daemon from reaching the LAN, so a plain `teleport host=<peer>` will fail with a 500. Instead:
+   - Call **`teleport_handoff`** with `host=<peer ip>` (a peer the user added in Settings →
+     Teleport), plus `folder`, `window`, optional `kind`/`session`. It returns a ready-to-run,
+     pre-signed **`curl`** command (the daemon signs it; you never see the token).
+   - **Run that `curl` with the Bash tool yourself.** Your Bash has macOS Local-Network
+     permission (the daemon doesn't), so this is what actually reaches the peer. The first time,
+     macOS may prompt to allow local-network access — that's expected.
+   - Parse the JSON it prints (same shape as a local pull) and continue.
+   - Use `kind=list` first if you need to choose a session, then `kind=conversation` with the
+     full `session` id. If `curl` can't connect, the peer isn't reachable — tell the user to
+     check it's on, on the same network, and added under Settings → Teleport → peer addresses.
 
 5. **Use it.** The tool returns the raw turns (the dialogue + tool calls). Read them, summarize
    what was going on if helpful, and continue the work the user asked for — now with that context.
