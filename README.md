@@ -1,12 +1,27 @@
 # restwalker
 
-> While you rest, it walks.
+> Your Max plan's tokens refill on a clock and expire unused. RestWalker spends the leftovers on
+> the work you keep meaning to get to.
 
-Idle-time Claude task runner — a Mac background service that queues and runs Claude Code agent tasks during your off-hours, gated by live Claude usage so it never burns your interactive budget.
+Anthropic's models are powerful and the **Max plan is a real monthly cost** — but its quota refills
+in rolling windows (5-hour and weekly), and most cycles you never burn through it before the next
+one resets. That capacity you already paid for just evaporates. **RestWalker reclaims it:** a Mac
+background service that runs Claude Code agent tasks during your idle time, gated by live usage so
+it only ever spends quota you weren't going to use — and never eats into your interactive budget.
 
-**Don't waste your Max plan — put idle tokens to work.**
+**What it does**
 
-Runs as a LaunchAgent on port **47290** with a SQLite database, a dashboard UI, a REST API (OpenAPI 3.0), and an MCP server for Claude Code.
+- **Defer in a word.** Mid-flow you spot something important but not urgent — just say
+  *"have restwalker do this tonight."* It captures a self-contained task and runs it when things
+  are quiet.
+- **Results you can actually use.** Tasks declare the **artifacts** they produce and can generate
+  ready-to-install **skills**, packaged so the output is easy to read, review, and reuse — not a
+  wall of transcript to dig through.
+- **Teleport.** Carry a recent conversation over from another folder — or another Mac running
+  restwalker — when you started Claude in the wrong project, or switched computers.
+
+Runs as a LaunchAgent on port **47290** with a SQLite database, a dashboard UI, a REST API
+(OpenAPI 3.0), and an MCP server for Claude Code.
 
 ![RestWalker dashboard](docs/screenshot-dashboard.png)
 
