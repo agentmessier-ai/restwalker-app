@@ -295,7 +295,7 @@ server.tool(
     window:  z.string().optional().describe('Time window, e.g. 1h, 6h, 24h (default 6h)'),
     session: z.string().optional().describe('Specific session id (else the most recent in the window)'),
     full:    z.boolean().optional().describe('true = no per-item truncation of tool outputs'),
-    host:    z.string().optional().describe('Peer host/name from teleport_peers; omit for this machine'),
+    host:    z.string().optional().describe('Configured static peer (secure/token mode only); omit for this machine. For the default LAN flow, pull from a peer via Bash instead — see the teleport skill.'),
   },
   async ({ folder, window, session, full, host }) =>
     text(await api('GET', '/teleport/conversation', undefined, {
@@ -321,13 +321,6 @@ server.tool(
   'List known Claude Code project folders (most-recent first) on this machine or a peer — use to discover what folders are teleportable.',
   { host: z.string().optional().describe('Peer host/name; omit for this machine') },
   async ({ host }) => text(await api('GET', '/teleport/folders', undefined, host ? { host } : undefined)),
-)
-
-server.tool(
-  'teleport_peers',
-  'List restwalker peers discovered on the local network (other Macs you can teleport conversations from)',
-  {},
-  async () => text(await api('GET', '/teleport/peers')),
 )
 
 server.tool(

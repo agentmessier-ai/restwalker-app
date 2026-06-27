@@ -48,3 +48,35 @@ jobs:
           kill $PID 2>/dev/null || true
           rm -rf "$TMP"
           test "$ok" = 1 || { echo "daemon failed to boot/serve"; exit 1; }
+
+  # SonarQube Community analysis. CE has no branch/PR analysis, so run on the
+  # develop branch only (a single analyzed branch).
+  sonarqube:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    needs: build
+    runs-on: [self-hosted, restwalker]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # full history -> accurate new-code/blame
+
+      - name: Install dependencies
+        working-directory: node
+        run: npm ci
+
+      - name: Coverage (lcov for Sonar)
+        working-directory: node
+        run: npm run coverage
+
+      - name: SonarQube Scan
+        # pinned to a commit SHA (supply-chain); bump via Dependabot
+        uses: SonarSource/sonarqube-scan-action@713881670b6b3676cda39549040e2d88c70d582e  # v8.2.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+      - name: Quality Gate
+        uses: SonarSource/sonarqube-quality-gate-action@cf038b0e0cdecfa9e56c198bbb7d21d751d62c3b  # v1.2.0
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

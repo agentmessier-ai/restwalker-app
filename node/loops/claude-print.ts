@@ -1,6 +1,6 @@
 import { spawn } from 'child_process'
-import { existsSync, readFileSync, mkdirSync, writeFileSync } from 'fs'
-import { basename, join } from 'path'
+import { readFileSync, mkdirSync, writeFileSync } from 'fs'
+import { join } from 'path'
 import chokidar from 'chokidar'
 import type { AgentLoop, AgentLoopContext, AgentLoopResult, EventCallback } from '../agent-loop.js'
 import { findSessionJsonl } from '../session.js'

@@ -27,7 +27,6 @@ import taskPromptsRoutes  from './routes/task-prompts.js'
 import utilityRoutes      from './routes/utility.js'
 import pluginRoutes       from './routes/plugins.js'
 import teleportRoutes     from './routes/teleport.js'
-import { startMdns, setLogger as setMdnsLogger } from './teleport-mdns.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PORT      = parseInt(process.env.PORT ?? '47290')
@@ -150,13 +149,9 @@ plugins.register(webhookPlugin, { builtin: true })
 plugins.register(gbrainPlugin, { builtin: true })
 await plugins.loadPersistedExternal()
 
-// Teleport LAN discovery — opt-in. Cross-folder teleport works regardless; this
-// only advertises/browses the network when explicitly enabled.
-setMdnsLogger({ info: (s) => app.log.info(s), warn: (s) => app.log.warn(s) })
-// Always browse for peers (passive, lets Auto-discover work); only advertise +
-// accept inbound pulls when network teleport is explicitly enabled.
-const teleportAdvertise = db.getSettings().TELEPORT_NETWORK_ENABLED === '1'
-startMdns(PORT, process.env.npm_package_version ?? 'dev', teleportAdvertise)
-if (teleportAdvertise && !db.getSettings().TELEPORT_TOKEN) {
-  app.log.warn('[teleport] advertising on the LAN with NO pairing token — any device on your local network can read conversations. Set a TELEPORT_TOKEN unless the network is fully trusted.')
+// Teleport LAN serving — opt-in. Cross-folder teleport works regardless; peers
+// discover this Mac by scanning /teleport/ping (no mDNS). Warn if we're serving
+// the LAN with no auth.
+if (db.getSettings().TELEPORT_NETWORK_ENABLED === '1' && !db.getSettings().TELEPORT_TOKEN) {
+  app.log.warn('[teleport] serving on the LAN with NO pairing token — any device on your local network can read conversations. Set a TELEPORT_TOKEN unless the network is fully trusted.')
 }
