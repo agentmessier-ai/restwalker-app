@@ -983,7 +983,7 @@ function renderPredictions(status, history) {
   const fiveH       = status.usage?.five_hour_pct;
   const weekly      = status.usage?.weekly_pct;
   const resets      = status.usage?.weekly_resets_at;
-  const fiveHResets = status.usage?.five_hour_resets_at;   // <-- ADD
+  const fiveHResets = status.usage?.five_hour_resets_at;
   const t5 = thr.five_hour_pause_pct  ?? 75;
   const tw = thr.weekly_reserve_pct   ?? 35;
   const ts = thr.weekly_hard_stop_pct ?? 90;
