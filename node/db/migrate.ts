@@ -153,6 +153,11 @@ export function migrate(): void {
   try { if (taskCols.includes('timeout_ms'))         client.exec('ALTER TABLE tasks DROP COLUMN timeout_ms') } catch { /* sqlite < 3.35 */ }
   if (!taskCols.includes('tags')) client.exec('ALTER TABLE tasks ADD COLUMN tags TEXT')
 
+  const snapCols = (client.prepare('PRAGMA table_info(usage_snapshots)').all() as { name: string }[]).map(c => c.name)
+  if (snapCols.length && !snapCols.includes('five_hour_resets_at')) {
+    client.exec('ALTER TABLE usage_snapshots ADD COLUMN five_hour_resets_at TEXT')
+  }
+
   // Setting: TASK_TIMEOUT_MS (ms) → TASK_TIMEOUT_S (seconds)
   const oldTimeout = client.prepare("SELECT value FROM settings WHERE key='TASK_TIMEOUT_MS'").get() as { value?: string } | undefined
   if (oldTimeout?.value) {

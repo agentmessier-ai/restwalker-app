@@ -7,7 +7,7 @@ export async function doSync(app: FastifyInstance, { forceRefresh = false } = {}
   const staleS = parseFloat(cfg.CACHE_STALE_MIN) * 60
   const usage  = await scheduler.readUsage({ cacheStaleS: staleS, forceRefresh })
   if (usage && !usage.stale) {
-    db.recordSnapshot(usage.five_hour_pct, usage.weekly_pct, usage.weekly_resets_at)
+    db.recordSnapshot(usage.five_hour_pct, usage.weekly_pct, usage.weekly_resets_at, usage.five_hour_resets_at)
     app.log.info(`[sync] 5h=${usage.five_hour_pct.toFixed(1)}% weekly=${usage.weekly_pct.toFixed(1)}% source=${usage.source}`)
   }
 }
@@ -26,7 +26,7 @@ export default async function usageRoutes(app: FastifyInstance) {
     const staleS = parseFloat(cfg.CACHE_STALE_MIN) * 60
     const usage  = await scheduler.readUsage({ cacheStaleS: staleS, forceRefresh: true })
     if (usage && !usage.stale) {
-      db.recordSnapshot(usage.five_hour_pct, usage.weekly_pct, usage.weekly_resets_at)
+      db.recordSnapshot(usage.five_hour_pct, usage.weekly_pct, usage.weekly_resets_at, usage.five_hour_resets_at)
       app.log.info(`[sync] 5h=${usage.five_hour_pct.toFixed(1)}% weekly=${usage.weekly_pct.toFixed(1)}% source=${usage.source}`)
     }
     return { ok: true, stale: usage?.stale ?? true }

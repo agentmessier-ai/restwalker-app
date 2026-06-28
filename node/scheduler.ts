@@ -15,12 +15,13 @@ const KEYCHAIN_SVC  = 'Claude Code-credentials'
 const MEM_CACHE_TTL = 300_000  // 5 min in ms
 
 export interface UsageData {
-  five_hour_pct:    number
-  weekly_pct:       number
-  weekly_resets_at: string | null
-  age_s:            number
-  stale:            boolean
-  source:           'api' | 'file'
+  five_hour_pct:       number
+  weekly_pct:          number
+  weekly_resets_at:    string | null
+  five_hour_resets_at: string | null
+  age_s:               number
+  stale:               boolean
+  source:              'api' | 'file'
 }
 
 export interface CanRunResult {
@@ -93,12 +94,13 @@ export async function fetchUsageFromApi(): Promise<UsageData | null> {
     if (fiveH.utilization == null || sevenD.utilization == null) return null
 
     return {
-      five_hour_pct:    fiveH.utilization,
-      weekly_pct:       sevenD.utilization,
-      weekly_resets_at: sevenD.resets_at ?? null,
-      age_s:            0,
-      stale:            false,
-      source:           'api',
+      five_hour_pct:       fiveH.utilization,
+      weekly_pct:          sevenD.utilization,
+      weekly_resets_at:    sevenD.resets_at  ?? null,
+      five_hour_resets_at: fiveH.resets_at   ?? null,
+      age_s:               0,
+      stale:               false,
+      source:              'api',
     }
   } catch (e) {
     _log.warn('[scheduler] API fetch failed: ' + (e as Error).message)
@@ -124,12 +126,13 @@ function readUsageFromFile(cacheStaleS = 1800): UsageData | null {
     if (fiveHPct == null || weeklyPct == null) return null
     const resetsEpoch = rl.seven_day?.resets_at
     return {
-      five_hour_pct:    fiveHPct,
-      weekly_pct:       weeklyPct,
-      weekly_resets_at: resetsEpoch ? new Date(resetsEpoch * 1000).toISOString() : null,
-      age_s:            ageS,
-      stale:            ageS > cacheStaleS,
-      source:           'file',
+      five_hour_pct:       fiveHPct,
+      weekly_pct:          weeklyPct,
+      weekly_resets_at:    resetsEpoch ? new Date(resetsEpoch * 1000).toISOString() : null,
+      five_hour_resets_at: null,
+      age_s:               ageS,
+      stale:               ageS > cacheStaleS,
+      source:              'file',
     }
   } catch (e) {
     _log.warn('[scheduler] file read failed: ' + (e as Error).message)

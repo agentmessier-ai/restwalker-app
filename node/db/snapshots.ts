@@ -4,11 +4,12 @@ import { db, client, schema } from './client.js'
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 export interface Snapshot {
-  id:               number
-  five_hour_pct:    number
-  weekly_pct:       number
-  weekly_resets_at: string | null
-  recorded_at:      string
+  id:                  number
+  five_hour_pct:       number
+  weekly_pct:          number
+  weekly_resets_at:    string | null
+  five_hour_resets_at: string | null
+  recorded_at:         string
 }
 
 export interface HistoryBucket {
@@ -20,9 +21,19 @@ export interface HistoryBucket {
 
 // ── Snapshots repository ───────────────────────────────────────────────────────
 
-export function recordSnapshot(fiveHourPct: number, weeklyPct: number, weeklyResetsAt: string | null): void {
+export function recordSnapshot(
+  fiveHourPct:      number,
+  weeklyPct:        number,
+  weeklyResetsAt:   string | null,
+  fiveHourResetsAt: string | null,
+): void {
   db.insert(schema.usageSnapshots)
-    .values({ five_hour_pct: fiveHourPct, weekly_pct: weeklyPct, weekly_resets_at: weeklyResetsAt })
+    .values({
+      five_hour_pct:       fiveHourPct,
+      weekly_pct:          weeklyPct,
+      weekly_resets_at:    weeklyResetsAt,
+      five_hour_resets_at: fiveHourResetsAt,
+    })
     .run()
 }
 
