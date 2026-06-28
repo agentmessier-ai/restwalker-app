@@ -1,19 +1,26 @@
 # restwalker
 
-> Your Max plan's tokens refill on a clock and expire unused. RestWalker spends the leftovers on
-> the work you keep meaning to get to.
+> Queue the Claude Code work you keep meaning to get to — repo reviews, doc generation, dependency
+> audits, a nightly skills digest — and it runs while you're idle, never touching your active session.
 
-Anthropic's models are powerful and the **Max plan is a real monthly cost** — but its quota refills
-in rolling windows (5-hour and weekly), and most cycles you never burn through it before the next
-one resets. That capacity you already paid for just evaporates. **RestWalker reclaims it:** a Mac
-background service that runs Claude Code agent tasks during your idle time, gated by live usage so
-it only ever spends quota you weren't going to use — and never eats into your interactive budget.
+RestWalker is a **background task queue for Claude Code**. Mid-flow you spot something important but
+not urgent; instead of breaking focus, you hand it off and it runs later, when you're away from the
+keyboard. A live usage gate keeps it **off your interactive 5-hour window**, so deferred work never
+competes with the session you're in. It runs on your existing Claude Code login — on capacity you've
+already paid for but rarely burn through before the rolling windows reset.
+
+**Example tasks**
+
+- **Nightly Dream Journal** (seeded on install): reflects on the day's Claude Code sessions, distills
+  the workflows you repeated into ready-to-install **skills**, and scans GitHub trending + current
+  best practices — leaving a short report each morning.
+- **Scheduled repo & PR review**, **dependency / tech-debt audits**, **documentation generation**, or
+  *"build me an MCP tool that does X"* — anything you'd run yourself, queued for idle time.
 
 **What it does**
 
-- **Defer in a word.** Mid-flow you spot something important but not urgent — just say
-  *"have restwalker do this tonight."* It captures a self-contained task and runs it when things
-  are quiet.
+- **Defer in a word.** Just say *"have restwalker do this tonight."* It captures a self-contained
+  task from the conversation and runs it when things are quiet — no forms, no context-switch.
 - **Results you can actually use.** Tasks declare the **artifacts** they produce and can generate
   ready-to-install **skills**, packaged so the output is easy to read, review, and reuse — not a
   wall of transcript to dig through.
