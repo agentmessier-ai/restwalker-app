@@ -968,14 +968,22 @@ async function runNowLowerReserve(weekly) {
   refresh();
 }
 
+function fmtTime(isoStr) {
+  if (!isoStr) return null;
+  return new Date(isoStr).toLocaleTimeString('en-US', {
+    hour: '2-digit', minute: '2-digit', timeZone: tz,
+  }) + ' ' + tzAbbr(tz);
+}
+
 // ── Predictions ───────────────────────────────────────────────────────────────
 
 function renderPredictions(status, history) {
   const el  = document.getElementById('predictions');
   const thr = status.thresholds || {};
-  const fiveH  = status.usage?.five_hour_pct;
-  const weekly = status.usage?.weekly_pct;
-  const resets = status.usage?.weekly_resets_at;
+  const fiveH       = status.usage?.five_hour_pct;
+  const weekly      = status.usage?.weekly_pct;
+  const resets      = status.usage?.weekly_resets_at;
+  const fiveHResets = status.usage?.five_hour_resets_at;   // <-- ADD
   const t5 = thr.five_hour_pause_pct  ?? 75;
   const tw = thr.weekly_reserve_pct   ?? 35;
   const ts = thr.weekly_hard_stop_pct ?? 90;
@@ -989,10 +997,36 @@ function renderPredictions(status, history) {
   const hw   = hoursUntil(weekly, 100-tw,   sWk);
   const hws  = hoursUntil(weekly, ts,       sWk);
 
+  // 5th card: will we hit the hard cap (100%) before the window resets?
+  const hCap      = hoursUntil(fiveH, 100, s5);   // hours until 5h hits 100%
+  const resetMs   = fiveHResets ? new Date(fiveHResets).getTime() : null;
+  const hoursToReset = resetMs ? (resetMs - Date.now()) / 3600000 : null;
+  let capValue, capCls;
+  if (fiveH >= 100) {
+    capValue = 'At cap';
+    capCls = 'red';
+  } else if (hCap === null && hoursToReset !== null) {
+    // Slope flat/falling — won't hit cap
+    capValue = `won't hit · resets ${fmtTime(fiveHResets)}`;
+    capCls = 'green';
+  } else if (hCap !== null && hoursToReset !== null && hoursToReset < hCap) {
+    // Reset comes before cap
+    capValue = `won't hit · resets ${fmtTime(fiveHResets)}`;
+    capCls = 'green';
+  } else if (hCap !== null) {
+    const capAt = new Date(Date.now() + hCap * 3600000);
+    capValue = `in ~${fmtHours(hCap)} (${fmtTime(capAt.toISOString())})`;
+    capCls = hCap < 2 ? 'red' : hCap < 4 ? 'amber' : 'green';
+  } else {
+    capValue = `${Math.round(fiveH ?? 0)}% — healthy`;
+    capCls = 'green';
+  }
+
   const resetStr = resets ? new Date(resets).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',timeZone:tz})+' '+tzAbbr(tz) : '—';
 
   const items = [
     { icon:'⏱', title:`5h hits pause (${t5}%)`,       value: h5===0?'Already paused':h5?'in ~'+fmtHours(h5):`${Math.round(fiveH??0)}% — healthy`,  cls: h5===0?'red':h5&&h5<2?'amber':'green' },
+    { icon:'🔴', title:'5h hits cap (100%)',            value: capValue, cls: capCls },
     { icon:'📅', title:`Weekly hits pause (${100-tw}%)`, value: hw===0?'Already paused':hw?'in ~'+fmtHours(hw):`${Math.round(weekly??0)}% — healthy`, cls: hw===0?'red':hw&&hw<12?'amber':'green' },
     { icon:'🛑', title:`Weekly hard stop (${ts}%)`,     value: hws===0?'Already stopped':hws?'in ~'+fmtHours(hws):`${Math.round(weekly??0)}% — safe`, cls: hws===0?'red':hws&&hws<24?'amber':'green' },
     { icon:'🔄', title:'Weekly budget resets',           value: resetStr, cls:'green' },
