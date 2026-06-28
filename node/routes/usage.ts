@@ -75,8 +75,9 @@ export default async function usageRoutes(app: FastifyInstance) {
               properties: {
                 five_hour_pct:    { type: 'number', nullable: true },
                 weekly_pct:       { type: 'number', nullable: true },
-                weekly_resets_at: { type: 'string', nullable: true },
-                cache_age_s:      { type: 'number', nullable: true },
+                weekly_resets_at:    { type: 'string', nullable: true },
+                five_hour_resets_at: { type: 'string', nullable: true },
+                cache_age_s:         { type: 'number', nullable: true },
                 stale:            { type: 'boolean' },
                 source:           { type: 'string', nullable: true },
               },
@@ -120,8 +121,9 @@ export default async function usageRoutes(app: FastifyInstance) {
       usage: {
         five_hour_pct:    usage?.five_hour_pct    ?? null,
         weekly_pct:       usage?.weekly_pct       ?? null,
-        weekly_resets_at: usage?.weekly_resets_at ?? null,
-        cache_age_s:      usage?.age_s != null ? Math.round(usage.age_s * 10) / 10 : null,
+        weekly_resets_at:    usage?.weekly_resets_at     ?? null,
+        five_hour_resets_at: usage?.five_hour_resets_at  ?? null,
+        cache_age_s:         usage?.age_s != null ? Math.round(usage.age_s * 10) / 10 : null,
         stale:            usage?.stale ?? true,
         source:           usage?.source ?? null,
       },
