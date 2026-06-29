@@ -7,7 +7,7 @@ export async function doSync(app: FastifyInstance, { forceRefresh = false } = {}
   const staleS = parseFloat(cfg.CACHE_STALE_MIN) * 60
   const usage  = await scheduler.readUsage({ cacheStaleS: staleS, forceRefresh })
   if (usage && !usage.stale) {
-    db.recordSnapshot(usage.five_hour_pct, usage.weekly_pct, usage.weekly_resets_at)
+    db.recordSnapshot(usage.five_hour_pct, usage.weekly_pct, usage.weekly_resets_at, usage.five_hour_resets_at)
     app.log.info(`[sync] 5h=${usage.five_hour_pct.toFixed(1)}% weekly=${usage.weekly_pct.toFixed(1)}% source=${usage.source}`)
   }
 }
@@ -26,7 +26,7 @@ export default async function usageRoutes(app: FastifyInstance) {
     const staleS = parseFloat(cfg.CACHE_STALE_MIN) * 60
     const usage  = await scheduler.readUsage({ cacheStaleS: staleS, forceRefresh: true })
     if (usage && !usage.stale) {
-      db.recordSnapshot(usage.five_hour_pct, usage.weekly_pct, usage.weekly_resets_at)
+      db.recordSnapshot(usage.five_hour_pct, usage.weekly_pct, usage.weekly_resets_at, usage.five_hour_resets_at)
       app.log.info(`[sync] 5h=${usage.five_hour_pct.toFixed(1)}% weekly=${usage.weekly_pct.toFixed(1)}% source=${usage.source}`)
     }
     return { ok: true, stale: usage?.stale ?? true }
@@ -75,8 +75,9 @@ export default async function usageRoutes(app: FastifyInstance) {
               properties: {
                 five_hour_pct:    { type: 'number', nullable: true },
                 weekly_pct:       { type: 'number', nullable: true },
-                weekly_resets_at: { type: 'string', nullable: true },
-                cache_age_s:      { type: 'number', nullable: true },
+                weekly_resets_at:    { type: 'string', nullable: true },
+                five_hour_resets_at: { type: 'string', nullable: true },
+                cache_age_s:         { type: 'number', nullable: true },
                 stale:            { type: 'boolean' },
                 source:           { type: 'string', nullable: true },
               },
@@ -120,8 +121,9 @@ export default async function usageRoutes(app: FastifyInstance) {
       usage: {
         five_hour_pct:    usage?.five_hour_pct    ?? null,
         weekly_pct:       usage?.weekly_pct       ?? null,
-        weekly_resets_at: usage?.weekly_resets_at ?? null,
-        cache_age_s:      usage?.age_s != null ? Math.round(usage.age_s * 10) / 10 : null,
+        weekly_resets_at:    usage?.weekly_resets_at     ?? null,
+        five_hour_resets_at: usage?.five_hour_resets_at  ?? null,
+        cache_age_s:         usage?.age_s != null ? Math.round(usage.age_s * 10) / 10 : null,
         stale:            usage?.stale ?? true,
         source:           usage?.source ?? null,
       },

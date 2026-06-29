@@ -7,8 +7,9 @@ export const usageSnapshots = sqliteTable('usage_snapshots', {
   id:              integer('id').primaryKey({ autoIncrement: true }),
   five_hour_pct:   real('five_hour_pct').notNull(),
   weekly_pct:      real('weekly_pct').notNull(),
-  weekly_resets_at:text('weekly_resets_at'),
-  recorded_at:     text('recorded_at').notNull().default(NOW),
+  weekly_resets_at:    text('weekly_resets_at'),
+  five_hour_resets_at: text('five_hour_resets_at'),
+  recorded_at:         text('recorded_at').notNull().default(NOW),
 })
 
 export const settings = sqliteTable('settings', {
