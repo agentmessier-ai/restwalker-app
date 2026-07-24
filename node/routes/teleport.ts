@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { hostname, networkInterfaces } from 'os'
 import { createHmac, timingSafeEqual } from 'crypto'
 import * as db from '../db.js'
-import { parseWindow, listProjectFolders, listConversations, getRawConversation } from '../teleport.js'
+import { parseWindow, listProjectFolders, listConversations, getRawConversation, searchConversations } from '../teleport.js'
 import { S } from './schemas.js'
 
 // A peer the daemon may sign/proxy a request to (secure "token" mode only — the
@@ -239,17 +239,44 @@ export default async function teleportRoutes(app: FastifyInstance) {
           window:  { type: 'string', description: 'e.g. 1h, 6h, 24h (default from settings)' },
           session: { type: 'string', description: 'Specific session id (else most recent in window)' },
           full:    { type: 'string', enum: ['0', '1'], description: '1 = no per-item truncation' },
+          before:  { type: 'string', description: 'ISO timestamp: end of range, instead of now (page back past a truncated result)' },
           host:    { type: 'string', description: 'Peer host/name; omit for this machine' },
         },
       },
       response: { 200: { type: 'object', additionalProperties: true } },
     },
   }, async (req) => {
-    const { folder, window, session, full, host } = req.query as
-      { folder: string; window?: string; session?: string; full?: string; host?: string }
+    const { folder, window, session, full, before, host } = req.query as
+      { folder: string; window?: string; session?: string; full?: string; before?: string; host?: string }
     const peer = resolvePeer(host)
-    if (peer) return proxy(peer.base, '/teleport/conversation', { folder, window, session, full })
+    if (peer) return proxy(peer.base, '/teleport/conversation', { folder, window, session, full, before })
     const win = parseWindow(window ?? db.getSettings().TELEPORT_DEFAULT_WINDOW)
-    return getRawConversation({ query: folder, windowMs: win, sessionId: session, full: full === '1' })
+    return getRawConversation({ query: folder, windowMs: win, sessionId: session, full: full === '1', before })
+  })
+
+  app.get('/teleport/search', {
+    schema: {
+      tags: ['teleport'],
+      summary: 'Search for a keyword/phrase across sessions (all folders if omitted) — returns match coordinates, not full conversations',
+      querystring: {
+        type: 'object', required: ['query'],
+        properties: {
+          query:  { type: 'string', description: 'Literal substring (or /regex/ if regex=1) to search for' },
+          folder: { type: 'string', description: 'Folder name, path, or substring; omit to search all known folders' },
+          window: { type: 'string', description: 'e.g. 1h, 6h, 24h, 14d (default from settings)' },
+          limit:  { type: 'integer', minimum: 1, maximum: 500, description: 'Max matches to return, default 50, max 500' },
+          regex:  { type: 'string', enum: ['0', '1'], description: '1 = treat query as a regular expression' },
+          host:   { type: 'string', description: 'Peer host/name; omit for this machine' },
+        },
+      },
+      response: { 200: { type: 'object', additionalProperties: true } },
+    },
+  }, async (req) => {
+    const { query, folder, window, limit, regex, host } = req.query as
+      { query: string; folder?: string; window?: string; limit?: number; regex?: string; host?: string }
+    const peer = resolvePeer(host)
+    if (peer) return proxy(peer.base, '/teleport/search', { query, folder, window, limit: limit != null ? String(limit) : undefined, regex })
+    const win = parseWindow(window ?? db.getSettings().TELEPORT_DEFAULT_WINDOW)
+    return searchConversations({ query, folder, windowMs: win, limit, regex: regex === '1' })
   })
 }

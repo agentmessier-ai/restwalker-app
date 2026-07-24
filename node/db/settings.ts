@@ -14,6 +14,7 @@ export interface Settings {
   POLL_INTERVAL_MIN:    string
   CACHE_STALE_MIN:      string
   TASK_TIMEOUT_S:       string   // kill timer per task spawn, in seconds (default 600 = 10 min)
+  DREAM_JOURNAL_USE_AGENT_REACH: string // '0' or '1' — opt in to agent-reach (Exa/Reddit/Twitter/GitHub) for Dream Journal's trending scan
   [key: string]: string
 }
 
@@ -28,6 +29,7 @@ export const SETTING_DEFAULTS: Settings = {
   POLL_INTERVAL_MIN:    process.env.POLL_INTERVAL_MIN     ?? '5',
   CACHE_STALE_MIN:      process.env.CACHE_STALE_MIN       ?? '30',
   TASK_TIMEOUT_S:       process.env.TASK_TIMEOUT_S        ?? '600',
+  DREAM_JOURNAL_USE_AGENT_REACH: process.env.DREAM_JOURNAL_USE_AGENT_REACH ?? '0',
   // Teleport: cross-folder is always-on locally; cross-Mac is opt-in. When
   // enabled, the daemon advertises/browses on the LAN and serves /teleport to
   // peers that present a matching TELEPORT_TOKEN.

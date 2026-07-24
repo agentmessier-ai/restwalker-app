@@ -1,9 +1,18 @@
 /**
  * Restwalker MCP server — stdio transport for Claude Code.
  *
- * API-first: tool input schemas for POST endpoints are derived at startup
- * from the live OpenAPI spec at /docs/json. Add a field to a Fastify route
- * and it automatically appears in the MCP tool — no manual Zod duplication.
+ * API-first: every tool's input schema is derived from the app's own OpenAPI
+ * spec (querystring, path params, and request body alike). The spec is built
+ * in-process via `buildApp()` — no HTTP fetch, no dependency on the daemon
+ * being up. Add/change a field on a Fastify route and the MCP tool's schema
+ * follows automatically; nothing is duplicated by hand except each tool's
+ * `name`, its agent-facing `description`, and (rarely) a field-description
+ * override or the small set of listed exceptions below.
+ *
+ * Actually *calling* a tool still talks HTTP to the running daemon at
+ * RESTWALKER_URL — that part still needs the daemon up, and fails per-call
+ * with a clear error if it isn't, rather than preventing every tool from
+ * registering.
  *
  * Register with Claude Code:
  *   claude mcp add restwalker -- node /path/to/node_modules/.bin/tsx /path/to/node/mcp.ts
@@ -12,10 +21,11 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
+import { buildApp } from './app.js'
 
 const BASE = process.env.RESTWALKER_URL ?? 'http://localhost:47290'
 
-// ── HTTP helper ────────────────────────────────────────────────────────────────
+// ── HTTP helper (actual tool calls — needs the daemon running) ────────────────
 
 async function api<T = unknown>(
   method: string,
@@ -48,7 +58,6 @@ function text(data: unknown) {
 interface OApiProperty {
   type?: string | string[]
   enum?: string[]
-  default?: unknown
   description?: string
   minimum?: number
   maximum?: number
@@ -57,6 +66,23 @@ interface OApiProperty {
 interface OApiBodySchema {
   properties?: Record<string, OApiProperty>
   required?: string[]
+}
+
+interface OApiParam {
+  name: string
+  in: 'query' | 'path'
+  required?: boolean
+  schema?: OApiProperty
+  description?: string
+}
+
+interface OApiOperation {
+  parameters?: OApiParam[]
+  requestBody?: { content?: { 'application/json'?: { schema?: OApiBodySchema } } }
+}
+
+export interface OApiSpec {
+  paths: Record<string, Record<string, OApiOperation>>
 }
 
 // Convert a single OpenAPI property to a Zod type
@@ -86,14 +112,8 @@ function propToZod(prop: OApiProperty): z.ZodTypeAny {
   return schema
 }
 
-// Fetch the OpenAPI spec and extract the request body schema for a given route
-async function fetchBodySchema(path: string, method = 'post'): Promise<OApiBodySchema> {
-  const spec = await api<{ paths: Record<string, Record<string, { requestBody?: { content?: { 'application/json'?: { schema?: OApiBodySchema } } } }>> }>('GET', '/docs/json')
-  return spec.paths[path]?.[method]?.requestBody?.content?.['application/json']?.schema ?? {}
-}
-
-// Build a Zod object shape from an OpenAPI body schema, with optional field overrides
-// (overrides let individual tools add richer descriptions without duplicating types)
+// Build a Zod object shape from an OpenAPI request-body schema, with optional
+// field-description overrides (for tools where the spec's own wording is bare).
 function buildZodShape(
   schema: OApiBodySchema,
   descriptionOverrides: Record<string, string> = {},
@@ -110,246 +130,280 @@ function buildZodShape(
   return shape
 }
 
+// Where a field's value has to go when actually calling the route.
+export interface FieldLoc { name: string; loc: 'query' | 'path' | 'body' }
+
+// Pull every input a route accepts — querystring, path params, and JSON body —
+// out of the spec for one operation, as a single flat Zod shape plus a map of
+// where each field belongs on the wire (query/path/body split back out at call time).
+export function operationFields(
+  spec: OApiSpec,
+  method: string,
+  path: string,
+  descriptionOverrides: Record<string, string> = {},
+  bool01: string[] = [],
+): { shape: Record<string, z.ZodTypeAny>; locs: FieldLoc[] } {
+  const op = spec.paths[path]?.[method.toLowerCase()]
+  if (!op) throw new Error(`no such operation in the OpenAPI spec: ${method} ${path}`)
+
+  const shape: Record<string, z.ZodTypeAny> = {}
+  const locs: FieldLoc[] = []
+
+  for (const p of op.parameters ?? []) {
+    const override = descriptionOverrides[p.name]
+    const desc = override ?? p.description
+    // A field that's boolean on the tool but '0'/'1' on the wire (see registerManifestTool):
+    // build z.boolean() straight from the spec description text — NOT by reading
+    // `.description` off the already-built zod field, because in zod v4 wrapping
+    // a schema in `.optional()` produces a new object whose OWN `.description` is
+    // undefined (it doesn't delegate to the inner type), so that introspection
+    // silently loses the description once optional() has already run.
+    let field = bool01.includes(p.name)
+      ? (desc ? z.boolean().describe(desc) : z.boolean())
+      : propToZod({ ...(p.schema ?? {}), description: desc })
+    if (!p.required) field = field.optional()
+    shape[p.name] = field
+    locs.push({ name: p.name, loc: p.in })
+  }
+
+  const bodySchema = op.requestBody?.content?.['application/json']?.schema
+  if (bodySchema) {
+    for (const [k, v] of Object.entries(buildZodShape(bodySchema, descriptionOverrides))) {
+      shape[k] = v
+      locs.push({ name: k, loc: 'body' })
+    }
+  }
+
+  return { shape, locs }
+}
+
 // ── Server ─────────────────────────────────────────────────────────────────────
 
 const server = new McpServer({ name: 'restwalker', version: '1.0.0' })
 
-// Fetch and register tools whose input schema is derived from the OpenAPI spec.
-// Called once before connecting the transport.
-async function registerDerivedTools() {
-  // queue_add — all POST /queue fields, including webhooks, come from the spec
-  const queueSchema = await fetchBodySchema('/queue')
-  server.tool(
-    'queue_add',
-    'Enqueue a new background task for execution by Claude Code when the gate opens',
-    buildZodShape(queueSchema, {
-      description:      'The task prompt sent to the agent',
-      cwd:              'Working directory for the agent',
-      model:            'Model ID, e.g. claude-sonnet-4-6',
-      provider_id:      'Provider ID (omit for default)',
-      schedule:         'Recurrence — once runs immediately, others repeat',
-      webhook_pre_url:  'URL to POST before the agent starts',
-      webhook_post_url: 'URL to POST after the agent finishes (includes status, tokens, result)',
-      webhook_timeout_s: 'Webhook HTTP timeout in seconds (default 10)',
-      webhook_retry:    'Webhook retry attempts on failure (default 2)',
-      webhook_ignore_ssl: 'Set 1 to skip TLS verification for self-signed certs',
-      timeout_s:        'Per-task agent timeout in seconds (default 600 = 10 min)',
-    }),
-    async (args) => text(await api('POST', '/queue', args)),
-  )
+// A tool whose schema and call-wiring are fully derived from the spec — this
+// covers every tool except the handful with cross-endpoint routing logic
+// (task_prompt_save) or a schema too generic to derive usefully (update_settings).
+export interface ToolDef {
+  name:        string
+  method:      'GET' | 'POST' | 'PUT' | 'DELETE'
+  path:        string                      // spec path, e.g. '/queue/{id}/session'
+  description: string                      // agent-facing — the spec has no equivalent
+  describe?:   Record<string, string>      // per-field description overrides
+  omit?:       string[]                    // spec fields to hide from the tool
+  bool01?:     string[]                    // fields that are boolean on the tool but '0'/'1' on the wire
+}
 
-  // task_prompt_save — POST /task-prompts fields from spec
-  const promptSchema = await fetchBodySchema('/task-prompts')
+// Pure: turn a tool call's args into a concrete request (path with {params}
+// substituted, querystring, JSON body) — no fetch, so it's testable without a
+// running daemon.
+export function buildRequest(
+  def: ToolDef,
+  locs: FieldLoc[],
+  args: Record<string, unknown>,
+): { path: string; query?: Record<string, string>; body?: Record<string, unknown> } {
+  let urlPath = def.path
+  const query: Record<string, string> = {}
+  const body: Record<string, unknown> = {}
+
+  for (const loc of locs) {
+    if (def.omit?.includes(loc.name)) continue
+    const val = args[loc.name]
+    if (val === undefined) continue
+
+    if (loc.loc === 'path') {
+      urlPath = urlPath.replace(`{${loc.name}}`, String(val))
+    } else if (loc.loc === 'query') {
+      if (def.bool01?.includes(loc.name)) { if (val) query[loc.name] = '1' }
+      else query[loc.name] = String(val)
+    } else {
+      body[loc.name] = val
+    }
+  }
+
+  return {
+    path: urlPath,
+    query: Object.keys(query).length ? query : undefined,
+    body: Object.keys(body).length ? body : undefined,
+  }
+}
+
+function registerManifestTool(spec: OApiSpec, def: ToolDef) {
+  const { shape, locs } = operationFields(spec, def.method, def.path, def.describe, def.bool01)
+
+  for (const key of def.omit ?? []) delete shape[key]
+
+  server.tool(def.name, def.description, shape, async (args: Record<string, unknown>) => {
+    const req = buildRequest(def, locs, args)
+    return text(await api(def.method, req.path, req.body, req.query))
+  })
+}
+
+export const TOOLS: ToolDef[] = [
+  // ── Status & usage ───────────────────────────────────────────────────────────
+  { name: 'status', method: 'GET', path: '/status',
+    description: 'Get daemon status: Claude usage %, coding window, gate open/closed, thresholds' },
+  { name: 'can_run', method: 'GET', path: '/can-run',
+    description: 'Quick check: is the usage gate open right now?',
+    describe: { project: "Project identifier (default 'default')" } },
+  { name: 'usage_history', method: 'GET', path: '/history',
+    description: 'Usage history bucketed into 15-minute intervals',
+    describe: { hours: 'How many hours back to fetch (default 48)' } },
+  { name: 'sync', method: 'POST', path: '/sync',
+    description: 'Force a Claude usage cache refresh' },
+
+  // ── Queue ────────────────────────────────────────────────────────────────────
+  { name: 'queue_add', method: 'POST', path: '/queue',
+    description: 'Enqueue a new background task for execution by Claude Code when the gate opens',
+    describe: {
+      description:      'The task prompt sent to the agent',
+      cwd:               'Working directory for the agent',
+      model:              'Model ID, e.g. claude-sonnet-4-6',
+      provider_id:        'Provider ID (omit for default)',
+      schedule:           'Recurrence — once runs immediately, others repeat',
+      webhook_pre_url:    'URL to POST before the agent starts',
+      webhook_post_url:   'URL to POST after the agent finishes (includes status, tokens, result)',
+      webhook_timeout_s:  'Webhook HTTP timeout in seconds (default 10)',
+      webhook_retry:      'Webhook retry attempts on failure (default 2)',
+      webhook_ignore_ssl: 'Set 1 to skip TLS verification for self-signed certs',
+      timeout_s:          'Per-task agent timeout in seconds (default 600 = 10 min)',
+    } },
+  { name: 'queue_stats', method: 'GET', path: '/queue/stats',
+    description: 'Task counts by status (scheduled / pending / running / done / failed / total)' },
+  { name: 'queue_list', method: 'GET', path: '/queue',
+    description: 'List tasks with pagination and filtering, newest first',
+    describe: {
+      limit:  'Page size (max 100, default 25)',
+      offset: 'Pagination offset',
+      status: 'Filter to a single task status',
+      schedule_type: 'Filter to once-off or recurring tasks',
+      sort:   'Sort by created/finished/duration',
+      dir:    'Sort direction',
+      tag:    'Filter to tasks carrying this tag',
+    } },
+  { name: 'queue_get', method: 'GET', path: '/queue/{id}',
+    description: 'Get a single task by ID', describe: { id: 'Task ID' } },
+  { name: 'queue_cancel', method: 'DELETE', path: '/queue/{id}',
+    description: 'Cancel a pending or scheduled task', describe: { id: 'Task ID' } },
+  { name: 'queue_force_run', method: 'POST', path: '/queue/{id}/force-run',
+    description: 'Force-run a pending task immediately, bypassing the usage gate', describe: { id: 'Task ID' } },
+  { name: 'queue_session', method: 'GET', path: '/queue/{id}/session',
+    description: 'Get the parsed Claude Code session transcript for a completed task (thinking blocks, tool calls, results)',
+    describe: { id: 'Task ID' } },
+  { name: 'queue_artifacts', method: 'GET', path: '/queue/{id}/artifacts',
+    description: 'List artifacts declared by a completed task (files the agent created and tagged for review)',
+    describe: { id: 'Task ID' } },
+
+  // ── Providers ────────────────────────────────────────────────────────────────
+  { name: 'list_providers', method: 'GET', path: '/providers',
+    description: 'List configured agent providers' },
+  { name: 'add_provider', method: 'POST', path: '/providers',
+    description: 'Add a new agent provider',
+    describe: {
+      name:          'Display name',
+      command:       'Executable, e.g. claude or /usr/local/bin/claude',
+      args_template: 'JSON array with {{task}}, {{model}}, {{cwd}} placeholders',
+      loop_type:     'claude_print = spawn the CLI (the pipe); claude_sdk = Anthropic Messages API',
+    } },
+  { name: 'set_default_provider', method: 'POST', path: '/providers/{id}/default',
+    description: 'Set the default agent provider', describe: { id: 'Provider ID' } },
+
+  // ── Discovery ────────────────────────────────────────────────────────────────
+  { name: 'list_models', method: 'GET', path: '/models',
+    description: 'List available Anthropic models from the live API' },
+  { name: 'list_projects', method: 'GET', path: '/projects',
+    description: 'List Claude Code projects from ~/.claude/history.jsonl, sorted by recency — use as cwd suggestions' },
+
+  // ── Teleport ─────────────────────────────────────────────────────────────────
+  { name: 'teleport', method: 'GET', path: '/teleport/conversation',
+    description: 'Pull the RAW recent Claude Code conversation from another folder (or another Mac on the LAN) into this session. Resolve `folder` by name/path; defaults to the most recent session in the window. Use teleport_list first if you need to choose among sessions.',
+    bool01: ['full'],
+    describe: {
+      folder:  'Folder name, path, or substring of the source project',
+      window:  'Time window, e.g. 1h, 6h, 24h (default 6h)',
+      session: 'Specific session id (else the most recent in the window)',
+      full:    'true = no per-item truncation of tool outputs',
+      before:  'ISO timestamp: end of range, instead of now. Page back past a `truncated: true` result by passing the `ts` of its earliest returned turn.',
+      host:    'Configured static peer (secure/token mode only); omit for this machine. For the default LAN flow, pull from a peer via Bash instead — see the teleport skill.',
+    } },
+  { name: 'teleport_search', method: 'GET', path: '/teleport/search',
+    description: 'Find WHERE something was said across sessions — searches entry text and tool-call names (a tool call carries no prose, so text-only search misses it) and returns match coordinates (session_id, ts, excerpt), not full conversations. `folder` omitted searches every known folder — use this for "did I ever do X" questions where you don\'t know which project. Feed a match\'s session_id/ts into `teleport` to retrieve the surrounding conversation. Check `sessions_scanned` before concluding "never happened" — it tells you how much was actually covered.',
+    bool01: ['regex'],
+    describe: {
+      query:  'Literal substring (or regex if regex=true) to search for',
+      folder: 'Folder name, path, or substring; omit to search all known folders',
+      window: 'Time window, e.g. 1h, 6h, 24h, 14d (default 6h)',
+      limit:  'Max matches to return (default 50, max 500)',
+      regex:  'true = treat query as a regular expression',
+      host:   'Peer host/name; omit for this machine',
+    } },
+  { name: 'teleport_list', method: 'GET', path: '/teleport/list',
+    description: 'List Claude Code conversations in a folder within a time window (metadata only: session id, times, message count, first request) so you can pick one for teleport.',
+    describe: {
+      folder: 'Folder name, path, or substring',
+      window: 'Time window, e.g. 1h, 6h, 24h (default 6h)',
+      host:   'Peer host/name; omit for this machine',
+    } },
+  { name: 'teleport_folders', method: 'GET', path: '/teleport/folders',
+    description: 'List known Claude Code project folders (most-recent first) on this machine or a peer — use to discover what folders are teleportable.',
+    describe: { host: 'Peer host/name; omit for this machine' } },
+  { name: 'teleport_handoff', method: 'GET', path: '/teleport/handoff',
+    description: 'Get a ready-to-run signed request to pull a conversation from a PEER Mac directly. macOS blocks the restwalker daemon from reaching the LAN, so for a remote `host` you must: call this to get a `curl` command, then RUN it with the Bash tool yourself (your Bash has Local Network permission), then read the JSON it returns. The daemon signs it — you never see the token.',
+    bool01: ['full'],
+    describe: {
+      host:    'Saved peer host/ip (must be a known peer)',
+      folder:  'Folder name/path on the peer',
+      kind:    'default conversation',
+      window:  'e.g. 1h, 6h, 24h',
+      session: 'full session id (else most recent in window)',
+    } },
+
+  // ── Settings ─────────────────────────────────────────────────────────────────
+  { name: 'get_settings', method: 'GET', path: '/settings',
+    description: 'Get all daemon settings (thresholds, timezone, poll intervals)' },
+
+  // ── Artifacts ────────────────────────────────────────────────────────────────
+  // (queue_artifacts is under Queue above, since it's keyed off a task id)
+
+  // ── System prompt ────────────────────────────────────────────────────────────
+  { name: 'system_prompt_get', method: 'GET', path: '/system-prompt',
+    description: 'Get the active system prompt injected into every task' },
+  { name: 'system_prompt_set', method: 'POST', path: '/system-prompt',
+    description: 'Save a new version of the system prompt (becomes active immediately)',
+    describe: { content: 'New system prompt content', label: 'Version label' } },
+
+  // ── Task prompts ─────────────────────────────────────────────────────────────
+  { name: 'task_prompt_versions', method: 'GET', path: '/task-prompts/{id}/versions',
+    description: 'List all versions of a task prompt chain', describe: { id: 'Any prompt ID in the chain' } },
+]
+
+// task_prompt_save routes to one of two endpoints depending on origin_id, so it
+// can't be expressed as a single (method, path) — but its Zod shape is still
+// pulled from the spec (POST /task-prompts and POST /task-prompts/{id}/versions
+// share the same body shape).
+function registerTaskPromptSave(spec: OApiSpec) {
+  const { shape } = operationFields(spec, 'POST', '/task-prompts', {
+    content:   'Prompt content',
+    title:     'Version label',
+    schedule:  'Recurrence schedule',
+    cwd:       'Working directory override',
+    run_now:   'Queue a task run immediately',
+  })
+  shape.origin_id = z.number().optional().describe('Existing prompt chain ID — omit to create new')
+
   server.tool(
     'task_prompt_save',
     'Save a new version of a task prompt and optionally queue a run. Pass origin_id to add a version to an existing chain; omit to create a new prompt.',
-    buildZodShape(promptSchema, {
-      content:     'Prompt content',
-      title:       'Version label',
-      schedule:    'Recurrence schedule',
-      cwd:         'Working directory override',
-      origin_id:   'Existing prompt chain ID — omit to create new',
-      run_now:     'Queue a task run immediately',
-    }),
+    shape,
     async ({ origin_id, ...rest }: Record<string, unknown>) => {
-      if (origin_id) {
-        return text(await api('POST', `/task-prompts/${origin_id}/versions`, rest))
-      }
-      return text(await api('POST', '/task-prompts', { ...rest }))
+      if (origin_id) return text(await api('POST', `/task-prompts/${origin_id}/versions`, rest))
+      return text(await api('POST', '/task-prompts', rest))
     },
   )
 }
 
-// ── Status & usage ─────────────────────────────────────────────────────────────
-
-server.tool(
-  'status',
-  'Get daemon status: Claude usage %, coding window, gate open/closed, thresholds',
-  {},
-  async () => text(await api('GET', '/status')),
-)
-
-server.tool(
-  'can_run',
-  'Quick check: is the usage gate open right now?',
-  {},
-  async () => text(await api('GET', '/can-run')),
-)
-
-server.tool(
-  'usage_history',
-  'Usage history bucketed into 15-minute intervals',
-  { hours: z.number().int().min(1).max(720).default(48).describe('How many hours back to fetch') },
-  async ({ hours }) => text(await api('GET', '/history', undefined, { hours: hours ?? 48 })),
-)
-
-server.tool(
-  'sync',
-  'Force a Claude usage cache refresh',
-  {},
-  async () => text(await api('POST', '/sync')),
-)
-
-// ── Queue ──────────────────────────────────────────────────────────────────────
-
-server.tool(
-  'queue_stats',
-  'Task counts by status (scheduled / pending / running / done / failed / total)',
-  {},
-  async () => text(await api('GET', '/queue/stats')),
-)
-
-server.tool(
-  'queue_list',
-  'List tasks with pagination, newest first',
-  {
-    limit:  z.number().int().min(1).max(100).default(25).optional().describe('Page size (max 100)'),
-    offset: z.number().int().min(0).default(0).optional().describe('Pagination offset'),
-  },
-  async ({ limit, offset }) =>
-    text(await api('GET', '/queue', undefined, { limit: limit ?? 25, offset: offset ?? 0 })),
-)
-
-server.tool(
-  'queue_get',
-  'Get a single task by ID',
-  { id: z.number().int().describe('Task ID') },
-  async ({ id }) => text(await api('GET', `/queue/${id}`)),
-)
-
-
-server.tool(
-  'queue_cancel',
-  'Cancel a pending or scheduled task',
-  { id: z.number().int().describe('Task ID') },
-  async ({ id }) => text(await api('DELETE', `/queue/${id}`)),
-)
-
-server.tool(
-  'queue_force_run',
-  'Force-run a pending task immediately, bypassing the usage gate',
-  { id: z.number().int().describe('Task ID') },
-  async ({ id }) => text(await api('POST', `/queue/${id}/force-run`)),
-)
-
-server.tool(
-  'queue_session',
-  'Get the parsed Claude Code session transcript for a completed task (thinking blocks, tool calls, results)',
-  { id: z.number().int().describe('Task ID') },
-  async ({ id }) => text(await api('GET', `/queue/${id}/session`)),
-)
-
-// ── Providers ──────────────────────────────────────────────────────────────────
-
-server.tool(
-  'list_providers',
-  'List configured agent providers',
-  {},
-  async () => text(await api('GET', '/providers')),
-)
-
-server.tool(
-  'add_provider',
-  'Add a new agent provider',
-  {
-    name:         z.string().describe('Display name'),
-    command:      z.string().describe('Executable, e.g. claude or /usr/local/bin/claude'),
-    args_template:z.string().optional()
-                   .describe('JSON array with {{task}}, {{model}}, {{cwd}} placeholders'),
-    loop_type:    z.enum(['claude_print', 'claude_sdk']).optional()
-                   .describe('claude_print = spawn the CLI (the pipe); claude_sdk = Anthropic Messages API'),
-  },
-  async (args) => text(await api('POST', '/providers', args)),
-)
-
-server.tool(
-  'set_default_provider',
-  'Set the default agent provider',
-  { id: z.number().int().describe('Provider ID') },
-  async ({ id }) => text(await api('POST', `/providers/${id}/default`)),
-)
-
-// ── Discovery ──────────────────────────────────────────────────────────────────
-
-server.tool(
-  'list_models',
-  'List available Anthropic models from the live API',
-  {},
-  async () => text(await api('GET', '/models')),
-)
-
-server.tool(
-  'list_projects',
-  'List Claude Code projects from ~/.claude/history.jsonl, sorted by recency — use as cwd suggestions',
-  {},
-  async () => text(await api('GET', '/projects')),
-)
-
-// ── Teleport ─────────────────────────────────────────────────────────────────
-
-server.tool(
-  'teleport',
-  'Pull the RAW recent Claude Code conversation from another folder (or another Mac on the LAN) into this session. Resolve `folder` by name/path; defaults to the most recent session in the window. Use teleport_list first if you need to choose among sessions.',
-  {
-    folder:  z.string().describe('Folder name, path, or substring of the source project'),
-    window:  z.string().optional().describe('Time window, e.g. 1h, 6h, 24h (default 6h)'),
-    session: z.string().optional().describe('Specific session id (else the most recent in the window)'),
-    full:    z.boolean().optional().describe('true = no per-item truncation of tool outputs'),
-    host:    z.string().optional().describe('Configured static peer (secure/token mode only); omit for this machine. For the default LAN flow, pull from a peer via Bash instead — see the teleport skill.'),
-  },
-  async ({ folder, window, session, full, host }) =>
-    text(await api('GET', '/teleport/conversation', undefined, {
-      folder, ...(window ? { window } : {}), ...(session ? { session } : {}),
-      ...(full ? { full: '1' } : {}), ...(host ? { host } : {}),
-    })),
-)
-
-server.tool(
-  'teleport_list',
-  'List Claude Code conversations in a folder within a time window (metadata only: session id, times, message count, first request) so you can pick one for teleport.',
-  {
-    folder: z.string().describe('Folder name, path, or substring'),
-    window: z.string().optional().describe('Time window, e.g. 1h, 6h, 24h (default 6h)'),
-    host:   z.string().optional().describe('Peer host/name; omit for this machine'),
-  },
-  async ({ folder, window, host }) =>
-    text(await api('GET', '/teleport/list', undefined, { folder, ...(window ? { window } : {}), ...(host ? { host } : {}) })),
-)
-
-server.tool(
-  'teleport_folders',
-  'List known Claude Code project folders (most-recent first) on this machine or a peer — use to discover what folders are teleportable.',
-  { host: z.string().optional().describe('Peer host/name; omit for this machine') },
-  async ({ host }) => text(await api('GET', '/teleport/folders', undefined, host ? { host } : undefined)),
-)
-
-server.tool(
-  'teleport_handoff',
-  'Get a ready-to-run signed request to pull a conversation from a PEER Mac directly. macOS blocks the restwalker daemon from reaching the LAN, so for a remote `host` you must: call this to get a `curl` command, then RUN it with the Bash tool yourself (your Bash has Local Network permission), then read the JSON it returns. The daemon signs it — you never see the token.',
-  {
-    host:    z.string().describe('Saved peer host/ip (must be a known peer)'),
-    folder:  z.string().describe('Folder name/path on the peer'),
-    kind:    z.enum(['conversation', 'list', 'folders']).optional().describe('default conversation'),
-    window:  z.string().optional().describe('e.g. 1h, 6h, 24h'),
-    session: z.string().optional().describe('full session id (else most recent in window)'),
-    full:    z.boolean().optional(),
-  },
-  async ({ host, folder, kind, window, session, full }) =>
-    text(await api('GET', '/teleport/handoff', undefined, {
-      host, folder, ...(kind ? { kind } : {}), ...(window ? { window } : {}),
-      ...(session ? { session } : {}), ...(full ? { full: '1' } : {}),
-    })),
-)
-
-// ── Settings ───────────────────────────────────────────────────────────────────
-
-server.tool(
-  'get_settings',
-  'Get all daemon settings (thresholds, timezone, poll intervals)',
-  {},
-  async () => text(await api('GET', '/settings')),
-)
-
+// update_settings takes a free-form settings object on the wire (POST /settings
+// has no fixed property schema to derive from), so its fields stay hand-written.
 server.tool(
   'update_settings',
   'Update one or more daemon settings',
@@ -363,6 +417,7 @@ server.tool(
     WEEKLY_HARD_STOP_PCT: z.string().optional().describe('Weekly usage % that hard-stops the gate'),
     POLL_INTERVAL_MIN:    z.string().optional().describe('Usage poll interval in minutes'),
     CACHE_STALE_MIN:      z.string().optional().describe('Cache stale threshold in minutes'),
+    DREAM_JOURNAL_USE_AGENT_REACH: z.enum(['0','1']).optional().describe('Use agent-reach (Exa/Reddit/Twitter/GitHub) for Dream Journal\'s trending scan (1=on, 0=off, default off)'),
   },
   async (args) => {
     const updates = Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined))
@@ -370,43 +425,21 @@ server.tool(
   },
 )
 
-// ── Artifacts ─────────────────────────────────────────────────────────────────
-
-server.tool(
-  'queue_artifacts',
-  'List artifacts declared by a completed task (files the agent created and tagged for review)',
-  { task_id: z.number().describe('Task ID') },
-  async ({ task_id }) => text(await api('GET', `/queue/${task_id}/artifacts`)),
-)
-
-// ── System prompt ─────────────────────────────────────────────────────────────
-
-server.tool(
-  'system_prompt_get',
-  'Get the active system prompt injected into every task',
-  {},
-  async () => text(await api('GET', '/system-prompt')),
-)
-
-server.tool(
-  'system_prompt_set',
-  'Save a new version of the system prompt (becomes active immediately)',
-  { content: z.string().describe('New system prompt content'), label: z.string().optional().describe('Version label') },
-  async ({ content, label }) => text(await api('POST', '/system-prompt', { content, label })),
-)
-
-// ── Task prompts ──────────────────────────────────────────────────────────────
-
-
-server.tool(
-  'task_prompt_versions',
-  'List all versions of a task prompt chain',
-  { prompt_id: z.number().describe('Any prompt ID in the chain') },
-  async ({ prompt_id }) => text(await api('GET', `/task-prompts/${prompt_id}/versions`)),
-)
-
 // ── Connect ────────────────────────────────────────────────────────────────────
 
-await registerDerivedTools()
-const transport = new StdioServerTransport()
-await server.connect(transport)
+// Only actually run the server (build the spec, register the derived tools,
+// connect stdio) when this file is the entry point — not when a test imports
+// it for TOOLS/operationFields/buildRequest, which are pure and need none of this.
+if (import.meta.url === `file://${process.argv[1]}`) {
+  // Build the app in-process purely to read its OpenAPI spec — never listens,
+  // so this works even if the real daemon isn't running.
+  const specApp = await buildApp()
+  await specApp.ready()
+  const spec = specApp.swagger() as unknown as OApiSpec
+
+  for (const def of TOOLS) registerManifestTool(spec, def)
+  registerTaskPromptSave(spec)
+
+  const transport = new StdioServerTransport()
+  await server.connect(transport)
+}

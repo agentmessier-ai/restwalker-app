@@ -1,12 +1,14 @@
 ---
 name: dream-journal
 description: Set up RestWalker's nightly "Dream Journal" — a daily task that reflects on the last 24h of Claude Code conversations, distills reusable skills, scans the web + GitHub trending for better practices, and writes a markdown report. Use when the user says "set up my dream journal", "schedule the nightly reflection", "have restwalker review my day", or wants a recurring self-improvement task.
-allowed-tools: mcp__plugin_restwalker_restwalker__queue_add mcp__plugin_restwalker_restwalker__queue_list mcp__restwalker__queue_add mcp__restwalker__queue_list
+allowed-tools: mcp__plugin_restwalker_restwalker__queue_add mcp__plugin_restwalker_restwalker__queue_list mcp__restwalker__queue_add mcp__restwalker__queue_list mcp__plugin_restwalker_restwalker__get_settings mcp__restwalker__get_settings mcp__plugin_restwalker_restwalker__update_settings mcp__restwalker__update_settings
 ---
 
 # Schedule the nightly Dream Journal
 
 Set up (or confirm) RestWalker's flagship recurring task. First check `queue_list` for an existing daily task whose description starts with "Dream Journal" — if one exists, tell the user it's already scheduled and stop (don't duplicate it).
+
+If the user asks to use agent-reach (Exa/Reddit/Twitter/GitHub) for the trending scan, or to turn it off, call `update_settings` with `DREAM_JOURNAL_USE_AGENT_REACH` set to `"1"` or `"0"` — it's an opt-in setting (default off) so users without the agent-reach skill installed aren't affected. Otherwise skip this step.
 
 Otherwise call `queue_add` with:
 - `schedule`: `"daily"`
@@ -22,8 +24,8 @@ PART 1 — Distill skills from today's conversations
 - For the best 1-3 candidates capture: name (kebab-case), when to use it, the steps, why it helps. If there were no meaningful conversations, say so and keep it short.
 
 PART 2 — Best-practice + trending scan (top 1-3 candidates only)
-- Use web search to check whether there's a more established way to do each. Note what's better and link the source.
-- Fetch https://github.com/trending?since=monthly , read the READMEs of the few most relevant repos, and note anything concrete worth adopting.
+- Call `get_settings` and check `DREAM_JOURNAL_USE_AGENT_REACH`. If it's `"1"` (and the agent-reach skill is installed), use agent-reach: Exa semantic search for whether there's a more established way to do each, plus Reddit/Twitter/HN for how practitioners are actually discussing/critiquing it — not just docs. Otherwise use plain web search.
+- GitHub: use `gh search repos "<topic>" --sort stars --limit 5` (or agent-reach's dev channel, if enabled) instead of scraping the trending page directly; read the READMEs of the few most relevant repos and note anything concrete worth adopting.
 
 OUTPUT
 - Write the report to ~/.restwalker/dreams/dream-<YYYY-MM-DD>.md (create the dir; use `date +%F`) with sections: Distilled skills, Best-practice notes, Trending & comparisons, Action items.

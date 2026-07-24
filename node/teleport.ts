@@ -61,8 +61,8 @@ export function parseWindow(s?: string): number {
 
 // ── Project folder discovery ─────────────────────────────────────────────────
 
-const PER_RESULT_CAP = 1500          // chars per tool result/input before truncation
-const TOTAL_CAP      = 150_000       // chars total before we start dropping oldest turns
+export const PER_RESULT_CAP = 1500   // chars per tool result/input before truncation
+export const TOTAL_CAP      = 150_000 // chars total before we start dropping oldest turns
 
 // Read the real cwd out of a session dir by scanning a file for the first line
 // that carries one (queue-operation/last-prompt lines don't).
@@ -163,9 +163,11 @@ export function getRawConversation(opts: {
   windowMs: number
   sessionId?: string
   full?: boolean
+  before?: string   // ISO timestamp: end of range, instead of now (pages back past a truncated result)
 }): RawConversation | { error: string; candidates?: ConversationCandidate[] } {
-  const { query, windowMs, sessionId, full } = opts
-  const since = Date.now() - windowMs
+  const { query, windowMs, sessionId, full, before } = opts
+  const until = before ? new Date(before).getTime() : Date.now()
+  const since = until - windowMs
   const folders = resolveFolders(query)
   if (!folders.length) return { error: `no Claude project folder matches "${query}"` }
 
@@ -195,6 +197,7 @@ export function getRawConversation(opts: {
     const e = parseTranscriptLine(line)
     if (!e) continue
     if (e.ts && new Date(e.ts).getTime() < since) continue
+    if (e.ts && before && new Date(e.ts).getTime() >= until) continue   // before is exclusive: lets paging (before = earliest ts of the prior page) avoid returning that turn again
     if (e.gitBranch) branch = e.gitBranch
     if (e.ts) { firstTs = firstTs ?? e.ts; lastTs = e.ts }
 
@@ -225,7 +228,107 @@ export function getRawConversation(opts: {
 
   return {
     source: { host: hostname(), project_path: target.folder.path, session_id: target.sessionId, git_branch: branch },
-    window: { since: new Date(since).toISOString(), until: new Date().toISOString() },
+    window: { since: new Date(since).toISOString(), until: new Date(until).toISOString() },
     turns, turn_count: turns.length, truncated,
   }
+}
+
+// ── Search ────────────────────────────────────────────────────────────────
+
+export interface SearchMatch {
+  session_id:   string
+  project_path: string
+  ts:           string | null
+  role:         'user' | 'assistant'
+  kind:         'text' | 'tool_use'
+  excerpt:      string
+}
+
+export interface SearchResult {
+  matches:          SearchMatch[]
+  match_count:      number
+  sessions_scanned: number
+  truncated:        boolean   // hit `limit`; more matches may exist
+}
+
+const SEARCH_LIMIT_DEFAULT = 50
+const SEARCH_LIMIT_MAX     = 500
+
+// A fixed window of context around a match, so excerpt size stays bounded
+// regardless of how long the underlying text block is.
+function excerptAround(text: string, query: string, re: RegExp | null): string {
+  let idx = text.indexOf(query), len = query.length
+  if (re) {
+    const m = text.match(re)
+    idx = m?.index ?? 0
+    len = m?.[0].length ?? 0
+  }
+  if (idx < 0) idx = 0
+  const start = Math.max(0, idx - 60)
+  const end = Math.min(text.length, idx + len + 60)
+  return (start > 0 ? '…' : '') + text.slice(start, end) + (end < text.length ? '…' : '')
+}
+
+// Find WHERE a query occurs across sessions/folders — coordinates, not
+// content. `folder` omitted searches every known folder (the point: "where
+// did I ever do X" usually doesn't know the folder). Bounded by match count
+// (`limit`), not bytes, so the response stays small no matter how large the
+// underlying sessions are. Matches entry.text and tool-use names — a tool
+// call with no prose is invisible to text-only search, which is the case
+// that motivated this.
+export function searchConversations(opts: {
+  query: string
+  folder?: string
+  windowMs: number
+  limit?: number
+  regex?: boolean
+}): SearchResult | { error: string } {
+  const { query, folder, windowMs, limit, regex } = opts
+  const cap = Math.min(Math.max(limit ?? SEARCH_LIMIT_DEFAULT, 1), SEARCH_LIMIT_MAX)
+  const since = Date.now() - windowMs
+
+  let re: RegExp | null = null
+  if (regex) {
+    try { re = new RegExp(query) } catch { return { error: `invalid regex: ${query}` } }
+  }
+  const test = (s: string) => re ? re.test(s) : s.includes(query)
+
+  const folders = folder ? resolveFolders(folder) : listProjectFolders()
+  if (folder && !folders.length) return { error: `no Claude project folder matches "${folder}"` }
+
+  const matches: SearchMatch[] = []
+  let sessionsScanned = 0
+  let truncated = false
+
+  search:
+  for (const f of folders) {
+    for (const s of sessionFilesInWindow(f.encodedDir, since)) {
+      sessionsScanned++
+      let lines: string[]
+      try { lines = readFileSync(s.file, 'utf8').split('\n') } catch { continue }
+      for (const line of lines) {
+        if (!line) continue
+        // Line-level short-circuit: substring-test the RAW string before
+        // JSON.parse. A regex query can't reuse this filter, so it parses
+        // every line (still bounded by the mtime window above).
+        if (!re && !line.includes(query)) continue
+        const e = parseTranscriptLine(line)
+        if (!e) continue
+        if (e.ts && new Date(e.ts).getTime() < since) continue
+
+        if (e.text && test(e.text)) {
+          matches.push({ session_id: s.sessionId, project_path: f.path, ts: e.ts, role: e.type, kind: 'text', excerpt: excerptAround(e.text, query, re) })
+          if (matches.length >= cap) { truncated = true; break search }
+        }
+        for (const u of e.toolUses) {
+          if (test(u.name)) {
+            matches.push({ session_id: s.sessionId, project_path: f.path, ts: e.ts, role: e.type, kind: 'tool_use', excerpt: u.name })
+            if (matches.length >= cap) { truncated = true; break search }
+          }
+        }
+      }
+    }
+  }
+
+  return { matches, match_count: matches.length, sessions_scanned: sessionsScanned, truncated }
 }
