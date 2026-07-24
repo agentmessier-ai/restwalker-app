@@ -1,13 +1,31 @@
 ---
 name: teleport
-description: Carry a recent Claude Code conversation from another folder — or another Mac on the LAN — into this session. Use when the user says "what was I doing in <folder/project>", "carry over / bring over the conversation from <folder>", "continue what I started in <other repo>", "pull my session from <project>", "teleport the conversation from my other Mac", or otherwise wants context from a Claude session that happened somewhere else.
-allowed-tools: mcp__plugin_restwalker_restwalker__teleport mcp__plugin_restwalker_restwalker__teleport_list mcp__plugin_restwalker_restwalker__teleport_folders mcp__restwalker__teleport mcp__restwalker__teleport_list mcp__restwalker__teleport_folders Bash
+description: Carry a recent Claude Code conversation from another folder — or another Mac on the LAN — into this session, or find WHERE something was ever discussed across sessions. Use when the user says "what was I doing in <folder/project>", "carry over / bring over the conversation from <folder>", "continue what I started in <other repo>", "pull my session from <project>", "teleport the conversation from my other Mac", "did I ever <do X>", "find where I talked about <X>", or otherwise wants context from a Claude session that happened somewhere else.
+allowed-tools: mcp__plugin_restwalker_restwalker__teleport mcp__plugin_restwalker_restwalker__teleport_list mcp__plugin_restwalker_restwalker__teleport_folders mcp__plugin_restwalker_restwalker__teleport_search mcp__restwalker__teleport mcp__restwalker__teleport_list mcp__restwalker__teleport_folders mcp__restwalker__teleport_search Bash
 ---
 
 # Teleport a conversation into this session
 
 The user worked with Claude somewhere else — a different folder, or a different Mac — and
-wants that thread *here*. How you do it depends on **where** it is.
+wants that thread *here*, OR they're asking "did I ever do X" without knowing which session
+(or even which folder) it happened in. Which flow you use depends on whether you already know
+**where** to look.
+
+## Don't know where → search first, retrieve second
+
+`teleport` alone answers "what was I doing in folder X recently" — it can't answer "where did I
+ever do X". For that:
+
+1. `teleport_search query=<text>` — `folder` is **optional**; omit it to search every known
+   folder. Matches both message text and tool-call *names* (a tool call with no prose, e.g. an
+   MCP tool invocation, is invisible to text search but still shows up here). Returns match
+   coordinates (`session_id`, `project_path`, `ts`, `excerpt`) — not full conversations.
+2. **Check `sessions_scanned` before concluding "never happened."** Zero matches across zero
+   scanned sessions means the search never actually ran over the relevant history (wrong
+   folder, window too short) — it is not evidence of absence. Zero matches across many scanned
+   sessions is a real negative.
+3. Feed a match's `session_id` + `ts` into `teleport` (below) to pull the surrounding
+   conversation for the one that looks relevant.
 
 ## Same Mac, different folder → use the MCP tools (no Bash)
 
@@ -15,6 +33,9 @@ wants that thread *here*. How you do it depends on **where** it is.
 2. `teleport_list folder=<name>` — see candidate sessions (pick one if there are several).
 3. `teleport folder=<name>` (optionally `session=<id>`, `window=6h`) — returns the raw turns.
    Read them and continue.
+4. If the result comes back `truncated: true`, the *oldest* turns were dropped to stay under
+   the size cap — re-run with `before=<ts of the earliest returned turn>` to page further back.
+   Repeat until `truncated: false` to reach the start of the session.
 
 Local is the common case and needs nothing else.
 
@@ -48,11 +69,14 @@ machine; the peer just needs RestWalker running with **"Advertise on LAN"** on a
 ### Step 2 — pull the conversation directly
 
 ```bash
+# don't know which folder/session? search first (folder param optional):
+curl -s --max-time 15 'http://<ip>:47290/teleport/search?query=<text>&window=24h'
 # list sessions to choose one (optional):
 curl -s --max-time 6 'http://<ip>:47290/teleport/list?folder=<name>&window=6h'
 # pull the raw conversation (most recent in window, or a specific session):
 curl -s --max-time 15 'http://<ip>:47290/teleport/conversation?folder=<name>&window=6h'
 # or with a chosen full session id: ...&session=<uuid>
+# truncated:true? page further back with before=<ts of the earliest returned turn>
 ```
 Parse the JSON (`turns[]` = the dialogue + tool calls), read it, and continue the user's work.
 

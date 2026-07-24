@@ -36,122 +36,139 @@ const PORT      = parseInt(process.env.PORT ?? '47290')
 const HOST      = process.env.HOST ?? '127.0.0.1'
 const LOG_FILE  = process.env.RESTWALKER_LOG ?? join(homedir(), '.restwalker', 'restwalker.log')
 
-const app = Fastify({
-  logger: {
-    level: 'info',
-    stream: createWriteStream(LOG_FILE, { flags: 'a' }),
-  },
-  disableRequestLogging: true,
-})
-
-// ── OpenAPI ────────────────────────────────────────────────────────────────────
-
-await app.register(fastifySwagger, {
-  openapi: {
-    openapi: '3.0.3',
-    info: {
-      title: 'Restwalker API',
-      description: 'Background Claude task queue with usage-gate scheduling',
-      version: '1.0.0',
+// Pure construction: builds and registers everything, never listens. Used both
+// by main() below and by mcp.ts, which needs the OpenAPI spec (via
+// app.swagger()) without booting a second daemon (queue/scheduler/watcher/listen).
+export async function buildApp() {
+  const app = Fastify({
+    logger: {
+      level: 'info',
+      stream: createWriteStream(LOG_FILE, { flags: 'a' }),
     },
-    tags: [
-      { name: 'health',        description: 'Health and status' },
-      { name: 'usage',         description: 'Claude usage monitoring and sync' },
-      { name: 'settings',      description: 'Daemon configuration' },
-      { name: 'providers',     description: 'Agent provider management' },
-      { name: 'queue',         description: 'Task queue' },
-      { name: 'discovery',     description: 'Models and projects' },
-      { name: 'system-prompt', description: 'Versioned system prompt management' },
-      { name: 'task-prompts',  description: 'Versioned task prompt objects' },
-      { name: 'utility',       description: 'Utility endpoints' },
-      { name: 'plugins',       description: 'Plugin management' },
-      { name: 'teleport',      description: 'Cross-folder / cross-Mac conversation retrieval' },
-    ],
-  },
-})
+    disableRequestLogging: true,
+  })
 
-await app.register(fastifySwaggerUi, {
-  routePrefix: '/docs',
-  uiConfig: { docExpansion: 'list', deepLinking: true },
-})
+  // ── OpenAPI ──────────────────────────────────────────────────────────────────
 
-// ── Static ─────────────────────────────────────────────────────────────────────
+  await app.register(fastifySwagger, {
+    openapi: {
+      openapi: '3.0.3',
+      info: {
+        title: 'Restwalker API',
+        description: 'Background Claude task queue with usage-gate scheduling',
+        version: '1.0.0',
+      },
+      tags: [
+        { name: 'health',        description: 'Health and status' },
+        { name: 'usage',         description: 'Claude usage monitoring and sync' },
+        { name: 'settings',      description: 'Daemon configuration' },
+        { name: 'providers',     description: 'Agent provider management' },
+        { name: 'queue',         description: 'Task queue' },
+        { name: 'discovery',     description: 'Models and projects' },
+        { name: 'system-prompt', description: 'Versioned system prompt management' },
+        { name: 'task-prompts',  description: 'Versioned task prompt objects' },
+        { name: 'utility',       description: 'Utility endpoints' },
+        { name: 'plugins',       description: 'Plugin management' },
+        { name: 'teleport',      description: 'Cross-folder / cross-Mac conversation retrieval' },
+      ],
+    },
+  })
 
-await app.register(fastifyStatic, {
-  root: join(__dirname, '..'),
-  serve: false,
-})
+  await app.register(fastifySwaggerUi, {
+    routePrefix: '/docs',
+    uiConfig: { docExpansion: 'list', deepLinking: true },
+  })
 
-// ── Routes ─────────────────────────────────────────────────────────────────────
+  // ── Static ───────────────────────────────────────────────────────────────────
 
-await app.register(healthRoutes)
-await app.register(usageRoutes)
-await app.register(settingsRoutes)
-await app.register(providersRoutes)
-await app.register(queueRoutes)
-await app.register(systemPromptRoutes)
-await app.register(taskPromptsRoutes)
-await app.register(utilityRoutes)
-await app.register(pluginRoutes)
-await app.register(teleportRoutes)
+  await app.register(fastifyStatic, {
+    root: join(__dirname, '..'),
+    serve: false,
+  })
 
-// ── File watcher ───────────────────────────────────────────────────────────────
+  // ── Routes ───────────────────────────────────────────────────────────────────
 
-const watcher = chokidar.watch(scheduler.USAGE_CACHE, { persistent: true, ignoreInitial: true })
-watcher.on('change', () => {
-  app.log.info('[watcher] cache file changed — syncing')
-  doSync(app).catch((e: Error) => app.log.warn('[watcher] sync error: ' + e.message))
-})
+  await app.register(healthRoutes)
+  await app.register(usageRoutes)
+  await app.register(settingsRoutes)
+  await app.register(providersRoutes)
+  await app.register(queueRoutes)
+  await app.register(systemPromptRoutes)
+  await app.register(taskPromptsRoutes)
+  await app.register(utilityRoutes)
+  await app.register(pluginRoutes)
+  await app.register(teleportRoutes)
 
-// ── Background poller ──────────────────────────────────────────────────────────
-
-function startPoller(): void {
-  const cfg        = db.getSettings()
-  const intervalMs = parseFloat(cfg.POLL_INTERVAL_MIN) * 60_000
-  setTimeout(async () => {
-    await doSync(app, { forceRefresh: true }).catch((e: Error) => app.log.warn('[poller] ' + e.message))
-    startPoller()
-  }, intervalMs)
+  return app
 }
 
-// ── Schedule checker ───────────────────────────────────────────────────────────
+async function main() {
+  const app = await buildApp()
 
-function startScheduleChecker(): void {
-  setInterval(() => {
-    const due = db.getScheduledDueTasks()
-    for (const task of due) {
-      db.setTaskPending(task.id)
-      enqueueTask(task)
-      app.log.info(`[schedule] enqueued #${task.id} (${task.schedule})`)
-    }
-  }, 60_000)
+  // ── File watcher ─────────────────────────────────────────────────────────────
+
+  const watcher = chokidar.watch(scheduler.USAGE_CACHE, { persistent: true, ignoreInitial: true })
+  watcher.on('change', () => {
+    app.log.info('[watcher] cache file changed — syncing')
+    doSync(app).catch((e: Error) => app.log.warn('[watcher] sync error: ' + e.message))
+  })
+
+  // ── Background poller ───────────────────────────────────────────────────────
+
+  function startPoller(): void {
+    const cfg        = db.getSettings()
+    const intervalMs = parseFloat(cfg.POLL_INTERVAL_MIN) * 60_000
+    setTimeout(async () => {
+      await doSync(app, { forceRefresh: true }).catch((e: Error) => app.log.warn('[poller] ' + e.message))
+      startPoller()
+    }, intervalMs)
+  }
+
+  // ── Schedule checker ─────────────────────────────────────────────────────────
+
+  function startScheduleChecker(): void {
+    setInterval(() => {
+      const due = db.getScheduledDueTasks()
+      for (const task of due) {
+        db.setTaskPending(task.id)
+        enqueueTask(task)
+        app.log.info(`[schedule] enqueued #${task.id} (${task.schedule})`)
+      }
+    }, 60_000)
+  }
+
+  // ── Start ────────────────────────────────────────────────────────────────────
+
+  db.migrate()
+  const orphans = db.resetOrphanedTasks()
+  if (orphans > 0) app.log.warn(`[boot] reset ${orphans} orphaned running task(s) to pending`)
+  await app.listen({ host: HOST, port: PORT })
+  const shown = HOST === '0.0.0.0' ? 'localhost' : HOST
+  app.log.info(`[restwalker] running on http://${shown}:${PORT} (bound ${HOST})`)
+  if (HOST === '0.0.0.0') app.log.warn('[restwalker] bound to 0.0.0.0 — reachable from the LAN; this service can run Bash, ensure the network is trusted')
+  app.log.info(`[restwalker] watching ${scheduler.USAGE_CACHE}`)
+  startPoller()
+  startScheduleChecker()
+  setQueue(startQueue(msg => app.log.info(msg)))
+  setRunnerLogger({ info: (s) => app.log.info(s), warn: (s) => app.log.warn(s) })
+  setSchedulerLogger({ info: (s) => app.log.info(s), warn: (s) => app.log.warn(s) })
+  plugins.setLogger({ info: (s) => app.log.info(s), warn: (s) => app.log.warn(s) })
+  setGbrainLogger({ info: (s) => app.log.info(s), warn: (s) => app.log.warn(s) })
+  setWebhookLogger({ info: (s) => app.log.info(s), warn: (s) => app.log.warn(s) })
+  plugins.register(webhookPlugin, { builtin: true })
+  plugins.register(gbrainPlugin, { builtin: true })
+  await plugins.loadPersistedExternal()
+
+  // Teleport LAN serving — opt-in. Cross-folder teleport works regardless; peers
+  // discover this Mac by scanning /teleport/ping (no mDNS). Warn if we're serving
+  // the LAN with no auth.
+  if (db.getSettings().TELEPORT_NETWORK_ENABLED === '1' && !db.getSettings().TELEPORT_TOKEN) {
+    app.log.warn('[teleport] serving on the LAN with NO pairing token — any device on your local network can read conversations. Set a TELEPORT_TOKEN unless the network is fully trusted.')
+  }
 }
 
-// ── Start ──────────────────────────────────────────────────────────────────────
-
-db.migrate()
-const orphans = db.resetOrphanedTasks()
-if (orphans > 0) app.log.warn(`[boot] reset ${orphans} orphaned running task(s) to pending`)
-await app.listen({ host: HOST, port: PORT })
-const shown = HOST === '0.0.0.0' ? 'localhost' : HOST
-app.log.info(`[restwalker] running on http://${shown}:${PORT} (bound ${HOST})`)
-if (HOST === '0.0.0.0') app.log.warn('[restwalker] bound to 0.0.0.0 — reachable from the LAN; this service can run Bash, ensure the network is trusted')
-app.log.info(`[restwalker] watching ${scheduler.USAGE_CACHE}`)
-startPoller()
-startScheduleChecker()
-setQueue(startQueue(msg => app.log.info(msg)))
-setRunnerLogger({ info: (s) => app.log.info(s), warn: (s) => app.log.warn(s) })
-setSchedulerLogger({ info: (s) => app.log.info(s), warn: (s) => app.log.warn(s) })
-plugins.setLogger({ info: (s) => app.log.info(s), warn: (s) => app.log.warn(s) })
-setGbrainLogger({ info: (s) => app.log.info(s), warn: (s) => app.log.warn(s) })
-setWebhookLogger({ info: (s) => app.log.info(s), warn: (s) => app.log.warn(s) })
-plugins.register(webhookPlugin, { builtin: true })
-plugins.register(gbrainPlugin, { builtin: true })
-await plugins.loadPersistedExternal()
-
-// Teleport LAN serving — opt-in. Cross-folder teleport works regardless; peers
-// discover this Mac by scanning /teleport/ping (no mDNS). Warn if we're serving
-// the LAN with no auth.
-if (db.getSettings().TELEPORT_NETWORK_ENABLED === '1' && !db.getSettings().TELEPORT_TOKEN) {
-  app.log.warn('[teleport] serving on the LAN with NO pairing token — any device on your local network can read conversations. Set a TELEPORT_TOKEN unless the network is fully trusted.')
+// Only run the daemon when this file is the entry point (`tsx app.ts`), not
+// when another module (mcp.ts) imports buildApp() for its spec.
+if (import.meta.url === `file://${process.argv[1]}`) {
+  await main()
 }
