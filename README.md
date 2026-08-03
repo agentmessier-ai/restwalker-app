@@ -24,8 +24,9 @@ already paid for but rarely burn through before the rolling windows reset.
 - **Results you can actually use.** Tasks declare the **artifacts** they produce and can generate
   ready-to-install **skills**, packaged so the output is easy to read, review, and reuse — not a
   wall of transcript to dig through.
-- **Teleport.** Carry a recent conversation over from another folder — or another Mac running
-  restwalker — when you started Claude in the wrong project, or switched computers.
+- **Teleport (HTTP API only).** Carry a recent conversation over from another folder — or another
+  Mac running restwalker. The chat-facing skill and MCP tools now live in the standalone
+  [`teleport`](#teleport) project; restwalker keeps serving the `/teleport/*` API.
 
 Runs as a LaunchAgent on port **47290** with a SQLite database, a dashboard UI, a REST API
 (OpenAPI 3.0), and an MCP server for Claude Code.
@@ -56,7 +57,6 @@ dashboard required:
 | *"have restwalker do this tonight: …"* | queues an important-but-not-urgent task for idle time |
 | *"what's in my queue?"* · *"how much budget left?"* | status + next idle window |
 | *"what did last night's task produce?"* | the result + its artifacts/files |
-| *"what was I doing in `myproject`?"* · *"pull the conversation from my other Mac"* | teleport |
 
 The dashboard at **http://localhost:47290** is **optional** — open it to watch usage/gates or tweak
 thresholds. Everything below is reference; day to day, the line above is all you need.
@@ -276,7 +276,6 @@ The MCP server (`node/mcp.ts`) exposes 27 tools for Claude Code via stdio transp
 | Providers | `list_providers`, `add_provider`, `set_default_provider` |
 | Discovery | `list_models`, `list_projects` |
 | Settings | `get_settings`, `update_settings` |
-| Teleport | `teleport`, `teleport_list`, `teleport_folders`, `teleport_handoff` |
 
 `queue_add` and `task_prompt_save` derive their input schemas from the live OpenAPI spec at
 startup — adding a field to the REST route surfaces it in the MCP tool automatically.
@@ -303,7 +302,6 @@ any chat — no dashboard needed. It bundles five skills (and the MCP server):
 | `/restwalker:status` | "restwalker status", "what's in my queue", "how much budget left" |
 | `/restwalker:result` | "what did last night's task produce", "show the dream journal" |
 | `/restwalker:dream-journal` | "set up my nightly dream journal" |
-| `/restwalker:teleport` | "what was I doing in `<project>`", "pull the conversation from my other Mac" |
 
 ```
 /plugin marketplace add agentmessier-ai/restwalker-app
@@ -318,15 +316,16 @@ Claude Code ties each conversation to the folder it ran in, which bites when you
 projects or machines — you started Claude in the **wrong folder**, or began on **another Mac**,
 and the thread you want is stranded elsewhere. Teleport carries it over for continuity: name a
 folder and a time window and it pulls that recent conversation into your current session — from
-this Mac, or from another Mac on your LAN. Just ask the agent.
+this Mac, or from another Mac on your LAN.
 
-- **Same Mac, other folder** — *"what was I doing in `myproject`"* → pulls the recent turns from
-  that folder's Claude session.
-- **Another Mac** — *"pull the agentnet conversation from my other Mac"* → the agent scans your
-  LAN for the peer, confirms it, and pulls the conversation directly.
-
-Teleport is **read-only** and works through the MCP tools (`teleport`, `teleport_list`,
-`teleport_folders`) and the `/restwalker:teleport` skill — no dashboard needed to use it.
+> **The chat-facing surface has moved.** The `/restwalker:teleport` skill and the `teleport*` MCP
+> tools were removed from this plugin; that job now belongs to the standalone **`teleport`**
+> project (`tp`/`tpd`), which authenticates each Mac with its own key pair and an explicit pairing
+> step instead of a LAN-wide shared token, and encrypts the peer channel. Running both would have
+> put two cross-session tools with unequal security in the same Claude session.
+>
+> What remains here is the **`/teleport/*` HTTP API** and its settings, unchanged, for direct API
+> callers. It is **read-only** and never modifies the source conversation.
 
 **To be a _source_** (the Mac you pull *from*): Settings → Teleport → **Advertise on LAN**, and
 bind the daemon to `0.0.0.0` (`HOST` in the LaunchAgent). The Mac you pull *to* needs no setup.
