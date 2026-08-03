@@ -580,9 +580,9 @@
         <b style="color:var(--text)">Teleport pulls a recent Claude Code conversation from another folder — or another Mac on your LAN — into your current session.</b>
         Claude Code ties each conversation to the folder it ran in, so you lose the thread when you start Claude in the wrong project folder, or pick a project up on a different computer. Teleport carries it over for continuity.
         <br><br>
-        You use it <b style="color:var(--text)">from chat</b> — the <code>/restwalker:teleport</code> skill or the teleport MCP tools. Just ask, e.g. <i>“what was I doing in myproject”</i> or <i>“pull the conversation from my other Mac.”</i> There's nothing to run on this page; it's read-only and never modifies the source.
+        <b style="color:var(--text)">The chat-facing skill and MCP tools have moved out of RestWalker</b> into the standalone <code>teleport</code> project (<code>tp</code>/<code>tpd</code>), which pairs each Mac by its own key instead of a shared token. RestWalker still serves the <code>/teleport/*</code> HTTP API described here, so existing direct API callers keep working, but you no longer drive it from chat through RestWalker.
         <br><br>
-        The settings below only <b style="color:var(--text)">configure</b> teleport: how far back it pulls by default, an optional shared token for authenticated access, and whether <b style="color:var(--text)">this</b> Mac lets other Macs pull its conversations.
+        The settings below only <b style="color:var(--text)">configure</b> that HTTP API: how far back it pulls by default, an optional shared token for authenticated access, and whether <b style="color:var(--text)">this</b> Mac lets other Macs pull its conversations.
       </div>
       <div class="setting-row">
         <div>
@@ -2166,8 +2166,8 @@ async function copyMcpInstall() {
   setTimeout(() => btn.textContent = 'Copy', 2000)
 }
 
-document.getElementById('mcp-modal').addEventListener('click', e => {
-  if (e.target === e.currentTarget) closeMcpInstall()
+document.addEventListener('click', e => {
+  if (e.target.id === 'mcp-modal') closeMcpInstall()
 })
 
 // ── Plugins panel ─────────────────────────────────────────────────────────────

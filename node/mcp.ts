@@ -315,48 +315,11 @@ export const TOOLS: ToolDef[] = [
     description: 'List Claude Code projects from ~/.claude/history.jsonl, sorted by recency — use as cwd suggestions' },
 
   // ── Teleport ─────────────────────────────────────────────────────────────────
-  { name: 'teleport', method: 'GET', path: '/teleport/conversation',
-    description: 'Pull the RAW recent Claude Code conversation from another folder (or another Mac on the LAN) into this session. Resolve `folder` by name/path; defaults to the most recent session in the window. Use teleport_list first if you need to choose among sessions.',
-    bool01: ['full'],
-    describe: {
-      folder:  'Folder name, path, or substring of the source project',
-      window:  'Time window, e.g. 1h, 6h, 24h (default 6h)',
-      session: 'Specific session id (else the most recent in the window)',
-      full:    'true = no per-item truncation of tool outputs',
-      before:  'ISO timestamp: end of range, instead of now. Page back past a `truncated: true` result by passing the `ts` of its earliest returned turn.',
-      host:    'Configured static peer (secure/token mode only); omit for this machine. For the default LAN flow, pull from a peer via Bash instead — see the teleport skill.',
-    } },
-  { name: 'teleport_search', method: 'GET', path: '/teleport/search',
-    description: 'Find WHERE something was said across sessions — searches entry text and tool-call names (a tool call carries no prose, so text-only search misses it) and returns match coordinates (session_id, ts, excerpt), not full conversations. `folder` omitted searches every known folder — use this for "did I ever do X" questions where you don\'t know which project. Feed a match\'s session_id/ts into `teleport` to retrieve the surrounding conversation. Check `sessions_scanned` before concluding "never happened" — it tells you how much was actually covered.',
-    bool01: ['regex'],
-    describe: {
-      query:  'Literal substring (or regex if regex=true) to search for',
-      folder: 'Folder name, path, or substring; omit to search all known folders',
-      window: 'Time window, e.g. 1h, 6h, 24h, 14d (default 6h)',
-      limit:  'Max matches to return (default 50, max 500)',
-      regex:  'true = treat query as a regular expression',
-      host:   'Peer host/name; omit for this machine',
-    } },
-  { name: 'teleport_list', method: 'GET', path: '/teleport/list',
-    description: 'List Claude Code conversations in a folder within a time window (metadata only: session id, times, message count, first request) so you can pick one for teleport.',
-    describe: {
-      folder: 'Folder name, path, or substring',
-      window: 'Time window, e.g. 1h, 6h, 24h (default 6h)',
-      host:   'Peer host/name; omit for this machine',
-    } },
-  { name: 'teleport_folders', method: 'GET', path: '/teleport/folders',
-    description: 'List known Claude Code project folders (most-recent first) on this machine or a peer — use to discover what folders are teleportable.',
-    describe: { host: 'Peer host/name; omit for this machine' } },
-  { name: 'teleport_handoff', method: 'GET', path: '/teleport/handoff',
-    description: 'Get a ready-to-run signed request to pull a conversation from a PEER Mac directly. macOS blocks the restwalker daemon from reaching the LAN, so for a remote `host` you must: call this to get a `curl` command, then RUN it with the Bash tool yourself (your Bash has Local Network permission), then read the JSON it returns. The daemon signs it — you never see the token.',
-    bool01: ['full'],
-    describe: {
-      host:    'Saved peer host/ip (must be a known peer)',
-      folder:  'Folder name/path on the peer',
-      kind:    'default conversation',
-      window:  'e.g. 1h, 6h, 24h',
-      session: 'full session id (else most recent in window)',
-    } },
+  // Deliberately NOT exposed as MCP tools. The `/teleport/*` HTTP routes stay —
+  // the dashboard and any direct API caller still use them — but the chat-facing
+  // surface now belongs to the standalone `teleport` project (tp/tpd), which
+  // owns per-device pairing and an encrypted peer channel. Two competing
+  // cross-session tools in one Claude session is worse than one.
 
   // ── Settings ─────────────────────────────────────────────────────────────────
   { name: 'get_settings', method: 'GET', path: '/settings',

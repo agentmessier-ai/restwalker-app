@@ -70,11 +70,11 @@ test('body params become tool fields (queue_add regression)', () => {
   }
 })
 
-test('required/optional matches the spec (teleport_list)', () => {
-  const def = mcp.TOOLS.find(t => t.name === 'teleport_list')!
+test('required/optional matches the spec (queue_add)', () => {
+  const def = mcp.TOOLS.find(t => t.name === 'queue_add')!
   const { shape } = mcp.operationFields(spec, def.method, def.path, def.describe, def.bool01)
-  assert.equal(shape.folder.isOptional(), false)
-  assert.equal(shape.window.isOptional(), true)
+  assert.equal(shape.description.isOptional(), false)
+  assert.equal(shape.cwd.isOptional(), true)
 })
 
 test('enums survive derivation (queue_list.status)', () => {
@@ -84,8 +84,16 @@ test('enums survive derivation (queue_list.status)', () => {
   assert.deepEqual([...inner.options].sort(), ['cancelled', 'done', 'failed', 'pending', 'running', 'scheduled'])
 })
 
+// No REGISTERED tool currently declares bool01 (the teleport tools that did are
+// no longer exposed over MCP), but the derivation machinery is still live and a
+// silently-broken '0'/'1' coercion would be a nasty regression for the next tool
+// that needs one. Drive it with a synthetic def against a real spec path — the
+// /teleport/* HTTP routes still exist and still declare `full` as a '0'/'1' enum.
 test('bool01 fields are booleans that serialize to \'0\'/\'1\' on the wire', () => {
-  const def = mcp.TOOLS.find(t => t.name === 'teleport')!
+  const def: typeof mcp.TOOLS[number] = {
+    name: 'synthetic_bool01', method: 'GET', path: '/teleport/conversation',
+    description: 'fixture', bool01: ['full'],
+  }
   const { shape, locs } = mcp.operationFields(spec, def.method, def.path, def.describe, def.bool01)
   assert.ok(shape.full.unwrap() instanceof z.ZodBoolean, 'full should be a boolean field on the tool, not the wire string enum')
   assert.equal(shape.full.isOptional(), true)
@@ -124,7 +132,15 @@ test('tool names are unique and match the expected registered set', () => {
     'list_providers', 'queue_add', 'queue_artifacts', 'queue_cancel',
     'queue_force_run', 'queue_get', 'queue_list', 'queue_session', 'queue_stats',
     'set_default_provider', 'status', 'sync', 'system_prompt_get',
-    'system_prompt_set', 'task_prompt_versions', 'teleport', 'teleport_folders',
-    'teleport_handoff', 'teleport_list', 'teleport_search', 'usage_history',
+    'system_prompt_set', 'task_prompt_versions', 'usage_history',
   ])
+})
+
+// The teleport tools were removed deliberately (the standalone `teleport`
+// project owns that surface now). Assert their ABSENCE so a stray revert or a
+// merge that resurrects them fails loudly instead of quietly re-introducing a
+// second, weaker-authenticated cross-session tool alongside tp's.
+test('teleport tools are no longer exposed over MCP', () => {
+  const teleportish = mcp.TOOLS.map(t => t.name).filter(n => n.startsWith('teleport'))
+  assert.deepEqual(teleportish, [])
 })
